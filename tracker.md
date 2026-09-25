@@ -1,0 +1,20 @@
+# TRACKER — важные паттерны и события за сессии кодинга
+
+Формат записи: `дата | категория | описание | статус/ссылка`.
+Категории: GIT, ENV, CODE, DATA, DECISION, PATTERN, ISSUE.
+
+---
+
+## 2026-09-25
+
+| # | Категория | Описание | Статус |
+|---|-----------|----------|--------|
+| 1 | ENV | Подключено окружение: токен в `token_git` + `GITHUB_TOKEN` (в `~/.bashrc` и `/workspace/.env`, chmod 600) | ✅ готово |
+| 2 | GIT | Remote `origin = https://github.com/Dropingcat/calc_model.git`, ветка `main`, upstream настроен (`-u`) | ✅ готово |
+| 3 | GIT | Аутентификация через `credential.helper store` (/root/.git-credentials) — токен не светится в .git/config | ✅ проверено тестовым push |
+| 4 | GIT | Первый пуш: `daa866a..528f60f main -> main` («first commit», README `# calc_model`) | ✅ на GitHub |
+| 5 | PATTERN | Безопасная работа с секретами: секрет в env-файл + gitignore, в remote URL токен не вшивать | 📌 правило сессии |
+| 6 | PATTERN | Перед force-push использовать `--force-with-lease`; после экспериментальных коммитов откатываться и сверять HEAD с origin | 📌 правило сессии |
+| 7 | DATA | В проекте: `cal_v2.py` (расчёты) и `Metrology_Core_EURACHEM_v2.xlsx` (метрология/EURACHEM) — контекст для будущих задач | ℹ️ отмечено |
+
+<!-- Новые записи добавлять ниже, не переписывая старые -->
