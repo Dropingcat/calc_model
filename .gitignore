@@ -1,0 +1,6 @@
+# Environment files
+.env
+# Secrets & generated artifacts (не коммитим)
+.env
+*.xlsx
+__pycache__/
