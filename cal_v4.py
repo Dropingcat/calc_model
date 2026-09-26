@@ -119,7 +119,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     for r in range(9, 109):
         ws.cell(r, 6, f'=IF(B{r}="","",AVERAGE(C{r}:E{r}))').fill = calc_fill
         ws.cell(r, 7, f'=IF(B{r}="","",'
-                      f"'Регрессия'!$B$8*B{r}+'Регрессия'!$B$9)").fill = calc_fill
+                      f"'Регрессия'!$B$7*B{r}+'Регрессия'!$B$8)").fill = calc_fill
         ws.cell(r, 8, f'=IF(F{r}="","",F{r}-G{r})').fill = calc_fill
         ws.cell(r, 9, f'=IF(H{r}="","",H{r}^2)').fill = calc_fill
 
@@ -155,8 +155,8 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         "=-B6*B3/B5",
         "=RSQ('Ввод'!$F$9:$F$108,'Ввод'!$B$9:$B$108)",
         "=B8/B7",
-        "=(B10+B6/'Ввод'!$B$4-2*B11)/B7^2"
-        "+(B13-'Неопределенность'!$B$1)^2*B9/B7^2",
+        "=(B10+B6/'Ввод'!$B$4+'Неопределенность'!$B$1^2*B9"
+        "+2*'Неопределенность'!$B$1*B11)/B7^2",
     ]
     for r, (label, formula) in enumerate(zip(labels, formulas), 2):
         reg.cell(r, 1, label).border = border
@@ -221,7 +221,9 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         wls.cell(r, 10, f'=IF(I{r}="","",I{r}*A{r}*A{r})').fill = calc_fill    # w²·x²
         # e_w — остаток при текущих коэффициентах (зависит от B122/B123)
         wls.cell(r, 11, f'=IF(B{r}="","",B{r}-$B$122*A{r}-$B$123)').fill = calc_fill
-        wls.cell(r, 12, f'=IF(K{r}="","",C{r}*K{r}*K{r})').fill = calc_fill    # w·e²
+        # L: w·e² — безопасно для пустых весов ("" не даст #VALUE!)
+        wls.cell(r, 12,
+                 f'=IF(OR(C{r}="",K{r}=""),"",C{r}*K{r}*K{r})').fill = calc_fill
         # M: вес только для участвующих точек (0 вместо "" — SUMPRODUCT-safe)
         wls.cell(r, 13, f'=IF(ISNUMBER(C{r}),C{r},0)').fill = calc_fill           # w_участн.
 
@@ -246,8 +248,8 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         "=SUMIF($E$9:$E$108,1,$C$9:$C$108)",                         # B115 Σw
         "=SUMPRODUCT($E$9:$E$108,$C$9:$C$108,$A$9:$A$108)",           # B116 Σwx
         "=SUM($D$9:$D$108)",                                          # B117 Σwy
-        "=SUMPRODUCT($E$9:$E$108,$J$9:$J$108)-B116^2/B115",           # B118 Sxx_w
-        "=SUMPRODUCT($E$9:$E$108,$C$9:$C$108,$H$9:$H$108)"
+        "=SUMPRODUCT($E$9:$E$108,$H$9:$H$108)-B116^2/B115",          # B118 Sxx_w
+        "=SUMPRODUCT($E$9:$E$108,$C$9:$C$108,$G$9:$G$108)"
         "-B116*B117/B115",                                            # B119 Sxy_w
         "=SUM($E$9:$E$108)",                                          # B120 n_eff
         "=IF(B120>2,B120-2,NA())",                                    # B121 dof
@@ -263,7 +265,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         "=IF('Регрессия'!B7=0,NA(),ABS(B122-'Регрессия'!B7)/ABS('Регрессия'!B7))",   # B130
         "=IF('Регрессия'!B8=0,NA(),ABS(B123-'Регрессия'!B8)"
         "/MAX(ABS('Регрессия'!B8),1E-12))",                           # B131
-        "=SUM($K$9:$K$108)",                                          # B132 Σw²x²
+        "=SUM($J$9:$J$108)",                                          # B132 Σw²x²
         # TD-02: D≈1 если модель дисперсии верна; D≫1 → интервалы занижены
         "=IF('Регрессия'!B6>0,B125/'Регрессия'!B6,NA())",             # B133
     ]
@@ -425,8 +427,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     d_wls = f"$B$1-{WW['xbarw']}+{WW['b0']}/{WW['b1']}"
     u2_model = (
         f"IF('Ввод'!$B$6=1,"
-        f"{OO['s2']}*(1/'Ввод'!$B$4+1/{OO['n']}+({d_ols})^2/{OO['Sxx']})"
-        f"+{OO['vb0']}+({d_ols})^2*{OO['vb1']}+2*({d_ols})*{OO['cov']},"
+        f"{OO['s2']}*(1/'Ввод'!$B$4+1/{OO['n']}+({d_ols})^2/{OO['Sxx']}),"
         f"{WW['phi']}*(1/'Ввод'!$B$4+1/{WW['Sw']})"
         f"+({d_wls})^2*{WW['vb1']}+{WW['vb0']}+2*({d_wls})*{WW['cov']})"
         f"/IF('Ввод'!$B$6=1,{OO['b1']},{WW['b1']})^2"
@@ -524,8 +525,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
             r, 11,
             f'=IF(B{r}="","",SQRT('
             f"IF('Ввод'!$B$6=1,"
-            f"{OO['s2']}*(1/E{r}+1/{OO['n']}+{d_ols_r}^2/{OO['Sxx']})"
-            f"+{OO['vb0']}+{d_ols_r}^2*{OO['vb1']}+2*{d_ols_r}*{OO['cov']},"
+            f"{OO['s2']}*(1/E{r}+1/{OO['n']}+{d_ols_r}^2/{OO['Sxx']}),"
             f"{WW['phi']}*(1/E{r}+1/{WW['Sw']})"
             f"+{d_wls_r}^2*{WW['vb1']}+{WW['vb0']}+2*{d_wls_r}*{WW['cov']})"
             f"/IF('Ввод'!$B$6=1,{OO['b1']},{WW['b1']})^2"
@@ -567,8 +567,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         prof.cell(
             r, 3,
             f"=IF('Ввод'!$B$6=1,"
-            f"{OO['s2']}*(1/'Ввод'!$B$4+1/{OO['n']}+B{r}^2/{OO['Sxx']})"
-            f"+{OO['vb0']}+B{r}^2*{OO['vb1']}+2*B{r}*{OO['cov']},"
+            f"{OO['s2']}*(1/'Ввод'!$B$4+1/{OO['n']}+B{r}^2/{OO['Sxx']}),"
             f"{WW['phi']}*(1/'Ввод'!$B$4+1/{WW['Sw']})"
             f"+B{r}^2*{WW['vb1']}+{WW['vb0']}+2*B{r}*{WW['cov']})"
             f"/IF('Ввод'!$B$6=1,{OO['b1']},{WW['b1']})^2"
