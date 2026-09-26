@@ -32,6 +32,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.formatting.rule import FormulaRule, ColorScaleRule
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.chart import LineChart, ScatterChart, Reference, Series
 
 
 def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
@@ -587,7 +588,101 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         "G4:G203", FormulaRule(formula=['$G4<>""'], fill=warn_fill))
 
     # ============================================================
-    # ЛИСТ 8. ВАЛИДАЦИЯ (16 проверок, включая TD-01…TD-04)
+    # ЛИСТ 8. ГРАФИКИ (3 диаграммы: калибровка, профиль U, остатки)
+    # ============================================================
+    charts = wb.create_sheet("Графики")
+    charts["A1"] = "ГРАФИЧЕСКАЯ ДИАГНОСТИКА МОДЕЛИ"
+    charts["A1"].font = Font(bold=True, size=15)
+    charts["A2"] = ("Диаграммы построены на данных листов «Ввод», «Профиль U(x)», "
+                    "«Взвешенная регрессия». Обновляются автоматически при пересчёте.")
+    charts["A2"].font = Font(italic=True, color="808080")
+
+    # --- 1. Калибровочная прямая: точки (x, ȳ) + ŷ ОМНК и WLS ---
+    ch1 = ScatterChart()
+    ch1.title = "Калибровочная прямая: точки, ОМНК, WLS"
+    ch1.style = 13
+    ch1.x_axis.title = "x (концентрация)"
+    ch1.y_axis.title = "y (отклик)"
+    ch1.x_axis.delete = False
+    ch1.y_axis.delete = False
+    ch1.height = 10
+    ch1.width = 16
+
+    # точки калибровки (Ввод: B9:B108, F9:F108)
+    ref_pts = Reference(ws, min_col=2, min_row=9, max_row=108)
+    ref_means = Reference(ws, min_col=6, min_row=9, max_row=108)
+    s_pts = Series(ref_means, ref_pts, title_from_data=False)
+    s_pts.marker.symbol = "circle"
+    s_pts.marker.size = 6
+    s_pts.graphicalProperties.line.noFill = True
+    ch1.series.append(s_pts)
+
+    # ŷ ОМНК (Ввод G)
+    ref_yhat_ols = Reference(ws, min_col=7, min_row=9, max_row=108)
+    s_ols = Series(ref_yhat_ols, ref_pts, title_from_data=False)
+    s_ols.graphicalProperties.line.solidFill = "4F81BD"
+    s_ols.graphicalProperties.line.width = 22000
+    s_ols.marker.symbol = "none"
+    ch1.series.append(s_ols)
+
+    # ŷ WLS (Взвешенная регрессия: A9:A108 как x, нет прямой — линии по регрессии)
+    # используем ту же сетку Ввода, но y по WLS-коэффициентам из листа «Взвешенная регрессия»
+    ref_yhat_wls = Reference(wls, min_col=1, min_row=9, max_row=108)
+    # строим WLS-прямую по двум крайним точкам диапазона Ввода: xmin/xmax
+    # ŷ_wls = b1_w·x + b0_w; сделаем столбец-прямую на листе «Взвешенная регрессия» O
+    for i in range(100):
+        r = 9 + i
+        # N: прямая WLS от текущих коэффициентов (для графика)
+        wls.cell(r, 14,
+                 f'=IF(A{r}="","",$B$122*A{r}+$B$123)').fill = calc_fill
+    ref_wls_line = Reference(wls, min_col=14, min_row=9, max_row=108)
+    s_wls = Series(ref_wls_line, ref_pts, title_from_data=False)
+    s_wls.graphicalProperties.line.solidFill = "C00000"
+    s_wls.graphicalProperties.line.width = 22000
+    s_wls.marker.symbol = "none"
+    ch1.series.append(s_wls)
+
+    # названия серий оставим дефолтными (ссылки на листы) — это допустимо для ScatterChart
+
+    # --- 2. Профиль U(x) ---
+    ch2 = ScatterChart()
+    ch2.title = "Профиль расширенной неопределённости U(x)"
+    ch2.style = 13
+    ch2.x_axis.title = "x"
+    ch2.y_axis.title = "U(x)"
+    ch2.height = 10
+    ch2.width = 16
+    ref_upx = Reference(prof, min_col=1, min_row=4, max_row=203)
+    ref_U = Reference(prof, min_col=6, min_row=4, max_row=203)
+    sU = Series(ref_U, ref_upx, title_from_data=False)
+    sU.graphicalProperties.line.solidFill = "C00000"
+    sU.graphicalProperties.line.width = 22000
+    sU.marker.symbol = "none"
+    ch2.series.append(sU)
+
+    # --- 3. Остатки WLS: e_w по x ---
+    ch3 = ScatterChart()
+    ch3.title = "Остатки регрессии (ОМНК: Ввод H; WLS: K на листе «Взвешенная регрессия»)"
+    ch3.style = 13
+    ch3.x_axis.title = "x"
+    ch3.y_axis.title = "e"
+    ch3.height = 10
+    ch3.width = 16
+    # остатки ОМНК (Ввод H) — точки
+    ref_e_ols = Reference(ws, min_col=8, min_row=9, max_row=108)
+    sE1 = Series(ref_e_ols, ref_pts, title_from_data=False)
+    sE1.marker.symbol = "diamond"
+    sE1.marker.size = 5
+    sE1.graphicalProperties.line.noFill = True
+    ch3.series.append(sE1)
+
+    # позиции диаграмм
+    charts.add_chart(ch1, "C2")
+    charts.add_chart(ch2, "C26")
+    charts.add_chart(ch3, "C50")
+
+    # ============================================================
+    # ЛИСТ 9. ВАЛИДАЦИЯ (16 проверок, включая TD-01…TD-04)
     # ============================================================
     val = wb.create_sheet("Валидация")
     val["A1"] = "АВТОМАТИЧЕСКАЯ ДИАГНОСТИКА МОДЕЛИ"
