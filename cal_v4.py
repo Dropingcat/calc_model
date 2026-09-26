@@ -33,6 +33,36 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.formatting.rule import FormulaRule, ColorScaleRule
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.chart import LineChart, ScatterChart, Reference, Series
+from openpyxl.workbook.defined_name import DefinedName
+
+import datetime
+import os
+import subprocess
+import sys
+
+# TD-09/12: центральная конфигурация (без магических чисел) и метаданные версии.
+CONFIG = dict(
+    VERSION="4.2.0",
+    MAX_POINTS=100,       # макс. строк калибровки (лимит TD-07)
+    GRID_N=200,           # точек в профиле U(x)
+    FIRST_DATA=9,         # первая строка данных на «Вводе»
+    STD_DF=50,            # степени свободы эталонов (Welch–Satterthwaite)
+    EPS=1e-12,            # защита от деления на ~0
+    D_LOW=0.5,            # границы коэффициента дисперсии D
+    D_HIGH=2.0,
+)
+
+
+def get_git_commit():
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True,
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        return r.stdout.strip() or "n/a"
+    except Exception:
+        return "n/a"
 
 
 def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
@@ -55,6 +85,46 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
             cell.alignment = Alignment(horizontal="center", vertical="center",
                                        wrap_text=True)
             cell.border = border
+
+    # ============================================================
+    # TD-07: именованные диапазоны (динамические области, без 9:108)
+    # ============================================================
+    L = CONFIG["MAX_POINTS"]
+    F = CONFIG["FIRST_DATA"]
+    LAST = F + L - 1          # 108
+    DLAST = F + L - 2         # 107 (таблица Диагностики начинается с 8)
+    WD = 9 + L - 1            # 108 (WLS-таблица с 9)
+    DD = 8 + L - 1            # 107 (Диагностика с 8)
+    PD = 4 + CONFIG["GRID_N"] - 1   # 203 (Профиль с 4)
+    Cfg = dict(L=L, F=F, LAST=LAST, DLAST=DLAST, WD=WD, DD=DD, PD=PD)
+
+    def add_name(name, ref):
+        wb.defined_names.add(DefinedName(name, attr_text=ref))
+
+    add_name("CAL_X", f"'Ввод'!$B${F}:$B${LAST}")     # концентрации
+    add_name("CAL_Y", f"'Ввод'!$F${F}:$F${LAST}")     # средние отклики
+    add_name("CAL_E2", f"'Ввод'!$I${F}:$I${LAST}")    # e²
+    add_name("CAL_SY", f"'Ввод'!$J${F}:$J${LAST}")    # s(y_i) повторн.
+    add_name("WLS_X", f"'Взвешенная регрессия'!$A$9:$A${WD}")
+    add_name("WLS_Y", f"'Взвешенная регрессия'!$B$9:$B${WD}")
+    add_name("WLS_W", f"'Взвешенная регрессия'!$C$9:$C${WD}")
+    add_name("WLS_WY", f"'Взвешенная регрессия'!$D$9:$D${WD}")
+    add_name("WLS_I", f"'Взвешенная регрессия'!$E$9:$E${WD}")
+    add_name("WLS_XY", f"'Взвешенная регрессия'!$G$9:$G${WD}")
+    add_name("WLS_WX2", f"'Взвешенная регрессия'!$H$9:$H${WD}")
+    add_name("WLS_W2X2", f"'Взвешенная регрессия'!$J$9:$J${WD}")
+    add_name("WLS_WE2", f"'Взвешенная регрессия'!$L$9:$L${WD}")
+    add_name("DG_X", f"'Диагностика'!$A$8:$A${DD}")
+    add_name("DG_NI", f"'Диагностика'!$C$8:$C${DD}")
+    add_name("DG_PE", f"'Диагностика'!$D$8:$D${DD}")
+    add_name("DG_LOF_OLS", f"'Диагностика'!$G$8:$G${DD}")
+    add_name("DG_LOF_WLS", f"'Диагностика'!$H$8:$H${DD}")
+    add_name("DG_ABS", f"'Диагностика'!$J$8:$J${DD}")   # |e|·√w
+    add_name("DG_XP", f"'Диагностика'!$K$8:$K${DD}")    # x участн.
+    add_name("DG_J2", f"'Диагностика'!$L$8:$L${DD}")
+    add_name("DG_K2", f"'Диагностика'!$M$8:$M${DD}")
+    add_name("DG_JK", f"'Диагностика'!$N$8:$N${DD}")
+    add_name("PROF_U", f"'Профиль U(x)'!$F$4:$F${PD}")
 
     # ============================================================
     # ЛИСТ 1. ВВОД
@@ -144,17 +214,17 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         "b0/b1", "var(x_pred) ковариационная (полная)",
     ]
     formulas = [
-        "=COUNT('Ввод'!$B$9:$B$108)",
-        "=AVERAGE('Ввод'!$B$9:$B$108)",
-        "=AVERAGE('Ввод'!$F$9:$F$108)",
-        "=DEVSQ('Ввод'!$B$9:$B$108)",
-        "=IF(B2>2,SUM('Ввод'!$I$9:$I$108)/(B2-2),NA())",
-        "=SLOPE('Ввод'!$F$9:$F$108,'Ввод'!$B$9:$B$108)",
-        "=INTERCEPT('Ввод'!$F$9:$F$108,'Ввод'!$B$9:$B$108)",
+        "=COUNT(CAL_X)",
+        "=AVERAGE(CAL_X)",
+        "=AVERAGE(CAL_Y)",
+        "=DEVSQ(CAL_X)",
+        "=IF(B2>2,SUM(CAL_E2)/(B2-2),NA())",
+        "=SLOPE(CAL_Y,CAL_X)",
+        "=INTERCEPT(CAL_Y,CAL_X)",
         "=B6/B5",
         "=B6*(1/B2+B3^2/B5)",
         "=-B6*B3/B5",
-        "=RSQ('Ввод'!$F$9:$F$108,'Ввод'!$B$9:$B$108)",
+        "=RSQ(CAL_Y,CAL_X)",
         "=B8/B7",
         "=(B10+B6/'Ввод'!$B$4+'Неопределенность'!$B$1^2*B9"
         "+2*'Неопределенность'!$B$1*B11)/B7^2",
@@ -245,30 +315,29 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     # вернут #VALUE!). Поэтому в таблице заранее вычислены служебные
     # столбцы G..L: x², xy, w², w·x², w²·x², e_w.
     stat_formulas = [
-        # TD-05: все суммы — по строкам с I=1 (множитель E в SUMPRODUCT).
-        "=SUMIF($E$9:$E$108,1,$C$9:$C$108)",                         # B115 Σw
-        "=SUMPRODUCT($E$9:$E$108,$C$9:$C$108,$A$9:$A$108)",           # B116 Σwx
-        "=SUM($D$9:$D$108)",                                          # B117 Σwy
-        "=SUMPRODUCT($E$9:$E$108,$H$9:$H$108)-B116^2/B115",          # B118 Sxx_w
-        "=SUMPRODUCT($E$9:$E$108,$C$9:$C$108,$G$9:$G$108)"
-        "-B116*B117/B115",                                            # B119 Sxy_w
-        "=SUM($E$9:$E$108)",                                          # B120 n_eff
-        "=IF(B120>2,B120-2,NA())",                                    # B121 dof
-        "=B119/B118",                                                 # B122 b1_w
-        "=(B117-B122*B116)/B115",                                     # B123 b0_w
-        "=SUM($L$9:$L$108)",                                         # B124 SSE_w
-        "=IF(B121>0,B124/B121,NA())",                                 # B125 φ_w
-        "=B125/B118",                                                 # B126 var(b1)_w
+        # TD-05: все суммы — по строкам с I=1 (множитель WLS_I в SUMPRODUCT).
+        "=SUMIF(WLS_I,1,WLS_W)",                              # B115 Σw
+        "=SUMPRODUCT(WLS_I,WLS_W,WLS_X)",                     # B116 Σwx
+        "=SUM(WLS_WY)",                                        # B117 Σwy
+        "=SUMPRODUCT(WLS_I,WLS_WX2)-B116^2/B115",             # B118 Sxx_w
+        "=SUMPRODUCT(WLS_I,WLS_W,WLS_XY)-B116*B117/B115",     # B119 Sxy_w
+        "=SUM(WLS_I)",                                         # B120 n_eff
+        "=IF(B120>2,B120-2,NA())",                             # B121 dof
+        "=B119/B118",                                          # B122 b1_w
+        "=(B117-B122*B116)/B115",                              # B123 b0_w
+        "=SUM(WLS_WE2)",                                      # B124 SSE_w
+        "=IF(B121>0,B124/B121,NA())",                          # B125 φ_w
+        "=B125/B118",                                          # B126 var(b1)_w
         # TD-02: полная форма: var(b0)_w = φ_w·Σw²x²/(Σw·Sxx_w)
-        "=B125*B132/(B115*B118)",                                     # B127 var(b0)_w
-        "=-B125*B116/(B115*B118)",                                    # B128 cov_w
-        "=B116/B115",                                                 # B129 x̄_w
+        "=B125*B132/(B115*B118)",                              # B127 var(b0)_w
+        "=-B125*B116/(B115*B118)",                             # B128 cov_w
+        "=B116/B115",                                          # B129 x̄_w
         "=IF('Регрессия'!B7=0,NA(),ABS(B122-'Регрессия'!B7)/ABS('Регрессия'!B7))",   # B130
         "=IF('Регрессия'!B8=0,NA(),ABS(B123-'Регрессия'!B8)"
-        "/MAX(ABS('Регрессия'!B8),1E-12))",                           # B131
-        "=SUM($J$9:$J$108)",                                          # B132 Σw²x²
+        "/MAX(ABS('Регрессия'!B8),1E-12))",                    # B131
+        "=SUM(WLS_W2X2)",                                      # B132 Σw²x²
         # TD-02: D≈1 если модель дисперсии верна; D≫1 → интервалы занижены
-        "=IF('Регрессия'!B6>0,B125/'Регрессия'!B6,NA())",             # B133
+        "=IF('Регрессия'!B6>0,B125/'Регрессия'!B6,NA())",      # B133
     ]
     for r, (label, formula) in enumerate(zip(stat_labels, stat_formulas), 115):
         wls.cell(r, 1, label).border = border
@@ -361,18 +430,18 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         "Вердикт LoF (WLS)",
     ]
     dg_formulas = [
-        "=COUNT($A$8:$A$107)",                                         # B110 m
-        "=SUM($D$8:$D$107)",                                           # B111 SS_PE
-        "=COUNTIFS($C$8:$C$107,\">=2\",$C$8:$C$107,\"<>\")"
-        "*0+SUMIFS($C$8:$C$107,$C$8:$C$107,\">=2\")"
-        "-COUNTIFS($C$8:$C$107,\">=2\")",                              # B112 df_PE
-        "=SUM($G$8:$G$107)",                                           # B113 SS_LoF OLS
+        "=COUNT(DG_X)",                                                # B110 m
+        "=SUM(DG_PE)",                                                 # B111 SS_PE
+        "=COUNTIFS(DG_NI,\">=2\",DG_NI,\"<>\")"
+        "*0+SUMIFS(DG_NI,DG_NI,\">=2\")"
+        "-COUNTIFS(DG_NI,\">=2\")",                                   # B112 df_PE
+        "=SUM(DG_LOF_OLS)",                                            # B113 SS_LoF OLS
         "=IF(B110>2,B110-2,NA())",                                     # B114 df_LoF
         "=IF(AND(B112>0,B114>0),(B113/B114)/(B111/B112),NA())",        # B115 F OLS
         "=IF(ISNUMBER(B115),FINV(1-'Ввод'!$B$7,B114,B112),NA())",      # B116 Fcrit
         "=IF(ISNUMBER(B115),IF(B115<=B116,\"PASS: линейность адекватна\","
         "\"FAIL: lack of fit — модель непригодна\"),\"нет повторностей\")",  # B117
-        "=SUM($H$8:$H$107)",                                           # B118 SS_LoF W
+        "=SUM(DG_LOF_WLS)",                                            # B118 SS_LoF W
         "=IF(AND(B112>0,B114>0,'Ввод'!$B$6>1),"
         "(B118/B114)/(B111/B112),NA())",                               # B119 F WLS
         "=IF(ISNUMBER(B119),IF(B119<=B116,\"PASS\",\"FAIL: нелинейность под весами\"),"
@@ -396,11 +465,11 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     dg.cell(123, 1, "Корреляция |e|·√w с x (ожидание ≈ 0; >0.5 — веса слабы)")
     # SUMPRODUCT только по простым диапазонам L..N (J², K², J·K)
     dg.cell(123, 2,
-            "=IF(AND('Ввод'!$B$6>1,COUNT($J$8:$J$107)>=4),"
-            "(SUM($N$8:$N$107)"
-            "-SUM($J$8:$J$107)*SUM($K$8:$K$107)/COUNT($J$8:$J$107))"
-            "/((SUM($L$8:$L$107)-SUM($J$8:$J$107)^2/COUNT($J$8:$J$107))^0.5"
-            "*(SUM($M$8:$M$107)-SUM($K$8:$K$107)^2/COUNT($J$8:$J$107))^0.5)"
+            "=IF(AND('Ввод'!$B$6>1,COUNT(DG_ABS)>=4),"
+            "(SUM(DG_JK)"
+            "-SUM(DG_ABS)*SUM(DG_XP)/COUNT(DG_ABS))"
+            "/((SUM(DG_J2)-SUM(DG_ABS)^2/COUNT(DG_ABS))^0.5"
+            "*(SUM(DG_K2)-SUM(DG_XP)^2/COUNT(DG_ABS))^0.5)"
             ",\"ОМНК-режим\")").fill = calc_fill
     dg.cell(124, 1, "D = φ_w/s²_ОМНК (идеал ≈ 1; вне 0.5…2 — уточнить веса)")
     dg.cell(124, 2, f"={WW['D']}").fill = calc_fill
@@ -458,7 +527,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         ("U(x_pred) расширенная = k·u_c", "=B12*B5", ""),
         ("U/x_pred относительная", "=IF(B1=0,NA(),B13/ABS(B1))", "0.0%"),
         ("Экстраполяция? (x_pred вне диапазона)",
-         "=OR(B1<MIN('Ввод'!$B$9:$B$108),B1>MAX('Ввод'!$B$9:$B$108))", ""),
+         "=OR(B1<MIN(CAL_X),B1>MAX(CAL_X))", ""),
     ]
     for r, (label, formula, fmt) in enumerate(layout, 1):
         unc.cell(r, 1, label).border = border
@@ -553,13 +622,13 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     style_header(prof, 3, len(ph))
 
     prof["A2"] = "Шаг сетки:"
-    prof["B2"] = "=(MAX('Ввод'!$B$9:$B$108)-MIN('Ввод'!$B$9:$B$108))/199"
+    prof["B2"] = f"=(MAX(CAL_X)-MIN(CAL_X))/199"
     prof["B2"].fill = calc_fill
 
-    for i in range(200):
+    for i in range(CONFIG["GRID_N"]):
         r = 4 + i
         prof.cell(r, 1,
-                  "=MIN('Ввод'!$B$9:$B$108)+(ROW()-4)*$B$2").fill = calc_fill
+                  "=MIN(CAL_X)+(ROW()-4)*$B$2").fill = calc_fill
         prof.cell(
             r, 2,
             f'=IF(\'Ввод\'!$B$6=1,A{r}-{OO["xbar"]},'
@@ -608,9 +677,9 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     ch1.height = 10
     ch1.width = 16
 
-    # точки калибровки (Ввод: B9:B108, F9:F108)
-    ref_pts = Reference(ws, min_col=2, min_row=9, max_row=108)
-    ref_means = Reference(ws, min_col=6, min_row=9, max_row=108)
+    # точки калибровки (Ввод: B9:B{WD}, F9:F{WD})
+    ref_pts = Reference(ws, min_col=2, min_row=9, max_row=WD)
+    ref_means = Reference(ws, min_col=6, min_row=9, max_row=WD)
     s_pts = Series(ref_means, ref_pts, title_from_data=False)
     s_pts.marker.symbol = "circle"
     s_pts.marker.size = 6
@@ -618,16 +687,16 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     ch1.series.append(s_pts)
 
     # ŷ ОМНК (Ввод G)
-    ref_yhat_ols = Reference(ws, min_col=7, min_row=9, max_row=108)
+    ref_yhat_ols = Reference(ws, min_col=7, min_row=9, max_row=WD)
     s_ols = Series(ref_yhat_ols, ref_pts, title_from_data=False)
     s_ols.graphicalProperties.line.solidFill = "4F81BD"
     s_ols.graphicalProperties.line.width = 22000
     s_ols.marker.symbol = "none"
     ch1.series.append(s_ols)
 
-    # ŷ WLS (Взвешенная регрессия: A9:A108 как x, нет прямой — линии по регрессии)
+    # ŷ WLS (Взвешенная регрессия: A9:A{WD} как x, нет прямой — линии по регрессии)
     # используем ту же сетку Ввода, но y по WLS-коэффициентам из листа «Взвешенная регрессия»
-    ref_yhat_wls = Reference(wls, min_col=1, min_row=9, max_row=108)
+    ref_yhat_wls = Reference(wls, min_col=1, min_row=9, max_row=WD)
     # строим WLS-прямую по двум крайним точкам диапазона Ввода: xmin/xmax
     # ŷ_wls = b1_w·x + b0_w; сделаем столбец-прямую на листе «Взвешенная регрессия» O
     for i in range(100):
@@ -635,7 +704,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         # N: прямая WLS от текущих коэффициентов (для графика)
         wls.cell(r, 14,
                  f'=IF(A{r}="","",$B$122*A{r}+$B$123)').fill = calc_fill
-    ref_wls_line = Reference(wls, min_col=14, min_row=9, max_row=108)
+    ref_wls_line = Reference(wls, min_col=14, min_row=9, max_row=WD)
     s_wls = Series(ref_wls_line, ref_pts, title_from_data=False)
     s_wls.graphicalProperties.line.solidFill = "C00000"
     s_wls.graphicalProperties.line.width = 22000
@@ -652,8 +721,8 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     ch2.y_axis.title = "U(x)"
     ch2.height = 10
     ch2.width = 16
-    ref_upx = Reference(prof, min_col=1, min_row=4, max_row=203)
-    ref_U = Reference(prof, min_col=6, min_row=4, max_row=203)
+    ref_upx = Reference(prof, min_col=1, min_row=4, max_row=PD)
+    ref_U = Reference(prof, min_col=6, min_row=4, max_row=PD)
     sU = Series(ref_U, ref_upx, title_from_data=False)
     sU.graphicalProperties.line.solidFill = "C00000"
     sU.graphicalProperties.line.width = 22000
@@ -669,7 +738,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     ch3.height = 10
     ch3.width = 16
     # остатки ОМНК (Ввод H) — точки
-    ref_e_ols = Reference(ws, min_col=8, min_row=9, max_row=108)
+    ref_e_ols = Reference(ws, min_col=8, min_row=9, max_row=WD)
     sE1 = Series(ref_e_ols, ref_pts, title_from_data=False)
     sE1.marker.symbol = "diamond"
     sE1.marker.size = 5
@@ -682,7 +751,34 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     charts.add_chart(ch3, "C50")
 
     # ============================================================
-    # ЛИСТ 9. ВАЛИДАЦИЯ (16 проверок, включая TD-01…TD-04)
+    # ЛИСТ 9. О КНИГЕ (TD-12: версия, дата, окружение, git)
+    # ============================================================
+    about = wb.create_sheet("О книге")
+    about["A1"] = "СВЕДЕНИЯ О КНИГЕ (ISO 17025, прослеживаемость)"
+    about["A1"].font = Font(bold=True, size=15)
+    about["A3"] = "Наименование"
+    about["B3"] = "Metrology Core EURACHEM"
+    about["A4"] = "Версия"
+    about["B4"] = CONFIG["VERSION"]
+    about["A5"] = "Дата генерации"
+    about["B5"] = datetime.date.today().isoformat()
+    about["A6"] = "Генератор"
+    about["B6"] = os.path.basename(__file__)
+    about["A7"] = "Версия Python"
+    about["B7"] = sys.version.split()[0]
+    about["A8"] = "Git commit (HEAD)"
+    about["B8"] = get_git_commit()
+    about["A10"] = ("Книга пересобирается скриптом; ручное редактирование формул "
+                    "не рекомендуется. Версия и commit позволяют воспроизвести результат.")
+    about["A10"].font = Font(italic=True, color="808080")
+    style_header(about, 3, 2)
+    for rr in range(3, 9):
+        about.cell(rr, 1).border = border
+        about.cell(rr, 2).border = border
+        about.cell(rr, 2).fill = calc_fill
+
+    # ============================================================
+    # ЛИСТ 10. ВАЛИДАЦИЯ (16 проверок, включая TD-01…TD-04)
     # ============================================================
     val = wb.create_sheet("Валидация")
     val["A1"] = "АВТОМАТИЧЕСКАЯ ДИАГНОСТИКА МОДЕЛИ"
@@ -705,12 +801,10 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
          "'Диагностика'!B119<='Диагностика'!B116,TRUE))"),
         ("x=0 корректно исключено из WLS (TD-01)",
          "=IF('Ввод'!$B$6=1,TRUE,"
-         f"{WW['neff']}=COUNT('Взвешенная регрессия'!$A$9:$A$108)"
-         "-COUNTIFS('Взвешенная регрессия'!$A$9:$A$108,0))"),
+         f"{WW['neff']}=COUNT(WLS_X)-COUNTIFS(WLS_X,0))"),
         ("Все веса положительны, NaN нет (TD-01)",
          "=IF('Ввод'!$B$6=1,TRUE,"
-         "SUMPRODUCT('Взвешенная регрессия'!$E$9:$E$108,"
-         "'Взвешенная регрессия'!$C$9:$C$108<=0)=0)"),
+         "SUMPRODUCT(WLS_I,WLS_W<=0)=0)"),
         ("n_eff(WLS) ≥ 4 (достаточно для φ_w)",
          "=IF('Ввод'!$B$6=1,TRUE," + WW['neff'] + ">=4)"),
         ("Модель дисперсии адекватна: 0.5 < D < 2 (TD-02)",
@@ -719,8 +813,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         ("Δb1 (WLS vs ОМНК) < 10%",
          "=IF('Ввод'!$B$6=1,TRUE," + WW['db1'] + "<0.1)"),
         ("a priori гетероскедастичность: corr(x, s_y) > 0.5",
-         "=IF(COUNT('Ввод'!$J$9:$J$108)>=3,"
-         "CORREL('Ввод'!$B$9:$B$108,'Ввод'!$J$9:$J$108)>0.5,TRUE)"),
+         "=IF(COUNT(CAL_SY)>=3,CORREL(CAL_X,CAL_SY)>0.5,TRUE)"),
         ("ν_eff ≥ 5 (корректный k по Стьюденту, TD-04)",
          "=IF(ISNUMBER('Неопределенность'!B11),"
          "'Неопределенность'!B11>=5,FALSE)"),
