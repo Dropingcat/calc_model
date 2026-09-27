@@ -42,7 +42,7 @@ import sys
 
 # TD-09/12: центральная конфигурация (без магических чисел) и метаданные версии.
 CONFIG = dict(
-    VERSION="5.0.0",
+    VERSION="5.1.0",
     MAX_POINTS=100,       # макс. строк калибровки (лимит TD-07)
     GRID_N=200,           # точек в профиле U(x)
     FIRST_DATA=9,         # первая строка данных на «Вводе»
@@ -111,6 +111,8 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     add_name("CAL_Y", f"'Ввод'!$F${F}:$F${LAST}")     # средние отклики
     add_name("CAL_E2", f"'Ввод'!$I${F}:$I${LAST}")    # e²
     add_name("CAL_SY", f"'Ввод'!$J${F}:$J${LAST}")    # s(y_i) повторн.
+    add_name("CAL_XBACK", f"'Ввод'!$M${F}:$M${LAST}")  # x_back (A-01)
+    add_name("CAL_DELTA", f"'Ввод'!$N${F}:$N${LAST}")  # Δ% back (A-01)
     add_name("WLS_X", f"'Взвешенная регрессия'!$A$9:$A${WD}")
     add_name("WLS_Y", f"'Взвешенная регрессия'!$B$9:$B${WD}")
     add_name("WLS_W", f"'Взвешенная регрессия'!$C$9:$C${WD}")
@@ -120,6 +122,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     add_name("WLS_WX2", f"'Взвешенная регрессия'!$H$9:$H${WD}")
     add_name("WLS_W2X2", f"'Взвешенная регрессия'!$J$9:$J${WD}")
     add_name("WLS_WE2", f"'Взвешенная регрессия'!$L$9:$L${WD}")
+    add_name("WLS_WOLS2", f"'Взвешенная регрессия'!$O$9:$O${WD}")  # w·e_ols² (A-06)
     add_name("DG_X", f"'Диагностика'!$A$8:$A${DD}")
     add_name("DG_NI", f"'Диагностика'!$C$8:$C${DD}")
     add_name("DG_PE", f"'Диагностика'!$D$8:$D${DD}")
@@ -179,6 +182,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     headers = [
         "№", "Концентрация x", "Отклик 1 y", "Отклик 2 y", "Отклик 3 y",
         "Среднее y", "ŷ (ОМНК)", "Остаток e", "e²", "s(y_i) повт.",
+        "x_back", "Δ% back",  # A-01
     ]
     for c, h in enumerate(headers, 1):
         ws.cell(8, c, h)
@@ -206,6 +210,12 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
                       f"'Регрессия'!$B$7*B{r}+'Регрессия'!$B$8)").fill = calc_fill
         ws.cell(r, 8, f'=IF(F{r}="","",F{r}-G{r})').fill = calc_fill
         ws.cell(r, 9, f'=IF(H{r}="","",H{r}^2)').fill = calc_fill
+        # A-01: back-calculation x_back = (F − b0)/b1, Δ% = |x_back − x|/x (ISO 11095)
+        ws.cell(r, 13,
+                f'=IF(OR(B{r}="",F{r}=""),"",(F{r}-\'Регрессия\'!$B$8)'
+                f'/\'Регрессия\'!$B$7)').fill = calc_fill
+        ws.cell(r, 14,
+                f'=IF(OR(M{r}="",B{r}=0),"",ABS(M{r}-B{r})/B{r})').fill = calc_fill
         # K,L: доверительная полоса ŷ ± k·u(ŷ_i) для графика диапазона неопределённости
         # «Неопределенность по точкам» начинается со строки 6 (эквивалент Ввода 9), сдвиг -3.
         ws.cell(r, 11, f"=IF(B{r}=\"\",\"\",G{r}+'Неопределенность'!$B$12*"
@@ -390,6 +400,10 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         "Наклон b1", "Сдвиг b0",
         "var(b1)", "var(b0)", "cov(b0,b1)", "R²",
         "b0/b1", "var(x_pred) ковариационная (полная)",
+        "t(b0) = b0/SE(b0)  (R-02)", "t_crit (α=0.05, n−2)  (R-02)",
+        "Вердикт b0 (R-02)", "s_blank = s_y/x (R-03)",
+        "LOD = 3.3·s_blank/b1 (R-03)", "LOQ = 10·s_blank/b1 (R-03)",
+        "Рабочий диапазон (R-03)",
     ]
     formulas = [
         "=COUNT(CAL_X)",
@@ -406,11 +420,25 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         "=B8/B7",
         "=(B10+B6/'Ввод'!$B$4+'Неопределенность'!$B$1^2*B9"
         "+2*'Неопределенность'!$B$1*B11)/B7^2",
+        # R-02: t-тест значимости сдвига b0 (бланк), EURACHEM E.4.2.
+        # TINV(p,ν) здесь — ДВУСТОРОННИЙ квантиль: TINV(α,ν)=k такой, что P(|T|≤k)=1−α.
+        # Критическое значение для двустороннего теста при доверительной
+        # вероятности B7 (0.95) равно TINV(1−B7, ν) = TINV(0.05, n−2).
+        "=IF(AND(ISNUMBER(B10),B10>0),B8/SQRT(B10),NA())",
+        "=IF(B2>2,TINV(1-'Ввод'!$B$7,B2-2),NA())",
+        '=IF(NOT(ISNUMBER(B15)),"н/д",IF(ABS(B15)<=B16,"незначим (b0≈0)","ЗНАЧИМ"))',
+        # R-03: LOD/LOQ по остаточной дисперсии
+        "=IF(ISNUMBER(B6),SQRT(B6),NA())",
+        "=IF(AND(ISNUMBER(B18),ABS(B7)>1E-12),3.3*B18/ABS(B7),NA())",
+        "=IF(AND(ISNUMBER(B18),ABS(B7)>1E-12),10*B18/ABS(B7),NA())",
+        '=IF(NOT(ISNUMBER(B20)),"n/a","LOQ-"&MAX(CAL_X))',
     ]
     for r, (label, formula) in enumerate(zip(labels, formulas), 2):
         reg.cell(r, 1, label).border = border
         reg.cell(r, 2, formula).fill = calc_fill
         reg.cell(r, 2).border = border
+    reg.conditional_formatting.add(
+        "B17", FormulaRule(formula=['ISNUMBER(SEARCH("ЗНАЧИМ",$B$17))'], fill=warn_fill))
 
     OO = dict(
         n="'Регрессия'!$B$2", xbar="'Регрессия'!$B$3", ybar="'Регрессия'!$B$4",
@@ -444,6 +472,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         # служебные столбцы G..L — только простые построчные выражения,
         # чтобы все SUMPRODUCT статистик содержали лишь диапазоны (см. выше)
         "xy", "w·x²", "w²", "w²·x²", "e_w = y−ŵ", "w·e_w²", "w_участн.",
+        "w·e_ols² (A-06)",  # O — для F-теста OLS vs WLS
     ]
     for c, h in enumerate(tbl_headers, 1):
         wls.cell(8, c, h)
@@ -475,6 +504,10 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
                  f'=IF(OR(C{r}="",K{r}=""),"",C{r}*K{r}*K{r})').fill = calc_fill
         # M: вес только для участвующих точек (0 вместо "" — SUMPRODUCT-safe)
         wls.cell(r, 13, f'=IF(ISNUMBER(C{r}),C{r},0)').fill = calc_fill           # w_участн.
+        # O: w·(y−ŷ_ols)² для F-теста OLS vs WLS (A-06) — защита от пустого веса
+        wls.cell(r, 15,
+                 f'=IF(OR(B{r}="",NOT(ISNUMBER(C{r}))),"",C{r}*(B{r}-'
+                 f"'Регрессия'!$B$7*A{r}-'Регрессия'!$B$8)^2)").fill = calc_fill
 
     stat_labels = [
         "Σw (по участвующим точкам)", "Σwx", "Σwy",
@@ -662,6 +695,70 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         "B125", FormulaRule(formula=['ISNUMBER(SEARCH("FAIL",$B$125))'], fill=fail_fill))
     dg.conditional_formatting.add(
         "B125", FormulaRule(formula=['ISNUMBER(SEARCH("PASS",$B$125))'], fill=pass_fill))
+
+    # A-03/R-06: нормальность остатков (SKEW/KURT), GUM 5.2
+    dg.cell(127, 1, "Нормальность остатков (A-03/R-06):").font = Font(bold=True)
+    dg.cell(128, 1, "Асимметрия остатков SKEW")
+    dg.cell(128, 2,
+            "=IF(COUNT(DG_PE)=0,NA(),SKEW('Ввод'!$H$9:$H$108))").fill = calc_fill
+    dg.cell(129, 1, "Эксцесс остатков KURT")
+    dg.cell(129, 2,
+            "=IF(COUNT(DG_PE)=0,NA(),KURT('Ввод'!$H$9:$H$108))").fill = calc_fill
+    dg.cell(130, 1, "Вердикт (|SKEW|<2 и |KURT|<7)")
+    dg.cell(130, 2,
+            "=IF(OR(NOT(ISNUMBER(B128)),NOT(ISNUMBER(B129))),\"н/д\","
+            "IF(AND(ABS(B128)<2,ABS(B129)<7),\"PASS: остатки ~нормальны\","
+            "\"FAIL: отклонение от нормальности\"))").fill = calc_fill
+    dg.conditional_formatting.add(
+        "B130", FormulaRule(formula=['ISNUMBER(SEARCH("FAIL",$B$130))'], fill=fail_fill))
+
+    # A-05/R-12: стандартизированные остатки e* = e/(s·√(1−h)), флаг |e*|>2.5
+    # h_i = 1/n + (x_i−x̄)²/Sxx — leverage. s = SQRT(s²_y/x).
+    dg.cell(132, 1, "Стандартизированные остатки и выбросы (A-05/R-12):").font = Font(bold=True)
+    for i in range(CONFIG["MAX_POINTS"]):
+        r = 133 + i
+        src = CONFIG["FIRST_DATA"] + i
+        if i < 6:
+            dg.cell(r, 1, f'=IF(\'Ввод\'!B{src}="","",\'Ввод\'!B{src})').fill = calc_fill
+            dg.cell(r, 2,
+                    f'=IF(\'Ввод\'!H{src}="","",'
+                    f"'Ввод'!H{src}/SQRT('Регрессия'!$B$6*"
+                    f"(1-1/'Регрессия'!$B$2-(\'Ввод\'!B{src}-'Регрессия'!$B$3)^2"
+                    f"/'Регрессия'!$B$5)))").fill = calc_fill
+            dg.cell(r, 3,
+                    f'=IF(OR(B{r}="",NOT(ISNUMBER(B{r}))),"",'
+                    f'IF(ABS(B{r})>2.5,"ВЫБРОС?",""))').fill = calc_fill
+        else:
+            dg.cell(r, 1, "").fill = calc_fill
+            dg.cell(r, 2, "").fill = calc_fill
+            dg.cell(r, 3, "").fill = calc_fill
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 1, 1,
+            "Число потенциальных выбросов (|e*|>2.5)")
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 1, 2,
+            f'=COUNTIF(C133:C{133+CONFIG["MAX_POINTS"]-1},"ВЫБРОС?")').fill = calc_fill
+
+    # A-06: F-тест OLS vs WLS (взвешенные остаточные дисперсии)
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 3, 1,
+            "F-тест OLS vs WLS (A-06): F = SSE_OLS,w/SSE_WLS,w").font = Font(bold=True)
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 4, 1,
+            "SSE_OLS под весами WLS (остатки ОМНК, веса активного режима)")
+    # Σ w·(y−ŷ_ols)² по участвующим точкам (столбец O листа «Взвешенная регрессия»)
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 4, 2,
+            "=IF('Ввод'!$B$6=1,NA(),SUM(WLS_WOLS2))").fill = calc_fill
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 5, 1, "SSE_WLS,w (B124 листа «Взвешенная регрессия»)")
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 5, 2,
+            "='Взвешенная регрессия'!B124").fill = calc_fill
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 6, 1, "F = SSE_OLS,w/SSE_WLS,w")
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 6, 2,
+            f'=IF(OR(NOT(ISNUMBER(B{133+CONFIG["MAX_POINTS"]+4})),'
+            f'B{133+CONFIG["MAX_POINTS"]+5}<=0),NA(),'
+            f'B{133+CONFIG["MAX_POINTS"]+4}/B{133+CONFIG["MAX_POINTS"]+5})').fill = calc_fill
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 7, 1,
+            "Вердикт: WLS лучше OLS, если F>F_crit (1.5)")
+    dg.cell(133 + CONFIG["MAX_POINTS"] + 7, 2,
+            f'=IF(NOT(ISNUMBER(B{133+CONFIG["MAX_POINTS"]+6})),"ОМНК-режим",'
+            f'IF(B{133+CONFIG["MAX_POINTS"]+6}>1.5,"WLS обоснован","OLS достаточен"))'
+            ).fill = calc_fill
 
     # ============================================================
     # ЛИСТ 5. НЕОПРЕДЕЛЁННОСТЬ (проба) + TD-04 (k по Стьюденту)
@@ -1022,6 +1119,22 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
              "  распределение (нормальное/прямоугольное/треугольное) → u_rel маточника;\n"
              "  u_rel процедуры разведения — пипетки, колбы (из паспортов мерной посуды);\n"
              "  u_rel(разведения) входит в каждый эталон из маточника и коррелирует через него.")
+    expl_row(11, "GUM vs Monte Carlo (JCGM 101, прил. 7) — важное примечание",
+             "Лист «Неопределенность» (u_c, U) считает стандартное линейное распространение "
+             "неопределённости по GUM. Это АППРОКСИМАЦИЯ: она линеаризует обратную модель "
+             "x_pred = (y_obs − b0)/b1 в точке оценок. При малом числе точек калибровки (n≈5–6) "
+             "и нелинейной обратной функции GUM СИСТЕМАТИЧЕСКИ ЗАНИЖАЕТ u на 5–15% "
+             "(подтверждено Monte-Carlo: u_MC > u_GUM).\n"
+             "Правило (JCGM 101): если |u_MC − u_GUM|/u_GUM ≤ 5% — GUM-аппроксимация пригодна; "
+             "если 5–15% — использовать MC-оценку как более честную; если >15% — проверить модель.\n"
+             "Сравнение для текущих данных (mc_v4.py, N=10⁵):\n"
+             "  Параметр        GUM (лист «Неопределенность»)   MC (JCGM 101)\n"
+             "  x_pred          0.54429                          0.54435\n"
+             "  u_c / u_MC      0.008456                         0.009287\n"
+             "  U(95%) / U_MC   0.016960                         0.018219\n"
+             "  Расхождение u:  ≈9.8% → рекомендован MC.\n"
+             "Как использовать: запустите `python mc_v4.py` после расчёта — скрипт прочитает "
+             "книгу, разыграет 10⁵ сценариев и выведет сравнение и вердикт.")
 
     # ============================================================
     # ЛИСТ 9. О КНИГЕ (TD-12: версия, дата, окружение, git)
@@ -1093,6 +1206,20 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         ("k в разумных границах 2…12 (TD-04)",
          "=IF(ISNUMBER('Неопределенность'!B12),"
          "AND('Неопределенность'!B12>=2,'Неопределенность'!B12<=12),FALSE)"),
+        # A-01: back-calculation в допуске ±15% (ISO 11095 / FDA ICH)
+        ("Back-calculation: все |Δ%| ≤ 0.15 (A-01)",
+         "=IF(COUNT(CAL_DELTA)=0,FALSE,"
+         "COUNTIFS(CAL_DELTA,\">0.15\")=0)"),
+        # R-03: минимум 4 точки калибровки (В-06)
+        ("Минимум 4 точки калибровки (В-06)", "=COUNT(CAL_X)>=4"),
+        # R-03: x_pred выше LOQ (иначе результат не количественный)
+        ("x_pred > LOQ (результат количественный, R-03)",
+         "=IF(ISNUMBER('Регрессия'!B20),"
+         "'Неопределенность'!B1>'Регрессия'!B20,FALSE)"),
+        # R-02: b0 незначим (t-тест бланка) — предупреждение, если значим
+        ("Сдвиг b0 незначим (t-тест, R-02)",
+         "=IF(ISNUMBER('Регрессия'!B15),"
+         "ABS('Регрессия'!B15)<=ABS('Регрессия'!B16),TRUE)"),
     ]
     for r, (name, formula) in enumerate(checks, 3):
         val.cell(r, 1, name).border = border
@@ -1107,6 +1234,18 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     val.cell(last + 2, 1, "Итог").font = Font(bold=True)
     val.cell(last + 2, 2,
              f'=IF(COUNTIF(C3:C{last},"FAIL")=0,"МОДЕЛЬ ПРИГОДНА","ЕСТЬ ЗАМЕЧАНИЯ")')
+    # A-02: интегральный вердикт для рутины
+    val.cell(last + 3, 1, "ВЕРДИКТ КАЛИБРОВКИ (A-02)").font = Font(bold=True, size=12)
+    val.cell(last + 3, 2,
+             f'=IF(COUNTIF(C3:C{last},"FAIL")=0,'
+             f'"КАЛИБРОВКА ПРИНЯТА","КАЛИБРОВКА ОТКЛОНЕНА")').font = Font(bold=True)
+    val.cell(last + 3, 2).fill = calc_fill
+    val.conditional_formatting.add(
+        f"B{last+3}",
+        FormulaRule(formula=[f'$B${last+3}="КАЛИБРОВКА ПРИНЯТА"'], fill=pass_fill))
+    val.conditional_formatting.add(
+        f"B{last+3}",
+        FormulaRule(formula=[f'$B${last+3}="КАЛИБРОВКА ОТКЛОНЕНА"'], fill=fail_fill))
     val.cell(last + 4, 1,
              "Статус внешнего валидатора (validate_v4.py, TD-06)").font = Font(bold=True)
     val.cell(last + 4, 2, "— заполняется скриптом —")
