@@ -29,7 +29,7 @@ cal_v4.py — генератор метрологической калибров
 """
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, Protection
 from openpyxl.formatting.rule import FormulaRule, ColorScaleRule
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.chart import LineChart, ScatterChart, Reference, Series
@@ -42,7 +42,7 @@ import sys
 
 # TD-09/12: центральная конфигурация (без магических чисел) и метаданные версии.
 CONFIG = dict(
-    VERSION="5.1.0",
+    VERSION="5.2.0",
     MAX_POINTS=100,       # макс. строк калибровки (лимит TD-07)
     GRID_N=200,           # точек в профиле U(x)
     FIRST_DATA=9,         # первая строка данных на «Вводе»
@@ -166,6 +166,27 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         cell.fill = calc_fill if isinstance(value, str) and value.startswith("=") else input_fill
     ws["B5"].number_format = "0.00%"
     ws["B7"].number_format = "0.00%"
+
+    # В-01: метаданные калибровки (ISO 17025) — в столбцах P:Q, НЕ в зоне данных (A9:A108)!
+    ws["P2"] = "МЕТАДАННЫЕ КАЛИБРОВКИ (В-01)"
+    ws["P2"].font = Font(bold=True)
+    meta = [
+        ("ID калибровки (авто)", '=TEXT(TODAY(),"YYYYMMDD")&"-"&Q6'),
+        ("Оператор", ""),
+        ("Прибор (серийный №)", ""),
+        ("Партия реактивов/эталонов", ""),
+        ("Дата калибровки", "=TODAY()"),
+        ("Температура помещения, °C", ""),
+        ("Срок действия калибровки", ""),
+    ]
+    for i, (name, value) in enumerate(meta):
+        r = 3 + i
+        ws.cell(r, 16, name)   # P
+        cell = ws.cell(r, 17, value)  # Q
+        cell.fill = calc_fill if isinstance(value, str) and value.startswith("=") else input_fill
+    ws["Q3"].number_format = "0"
+    ws["Q7"].number_format = "DD.MM.YYYY"
+    ws["Q9"].number_format = "DD.MM.YYYY"
 
     dv_w = DataValidation(type="list", formula1='"1,2,3"', allow_blank=False)
     ws.add_data_validation(dv_w)
@@ -478,7 +499,8 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         wls.cell(8, c, h)
     style_header(wls, 8, len(tbl_headers))
 
-    # TD-01: IF(A>0, 1/A^k, "") — пустая ячейка веса вместо #N/A.
+    # TD-01: IF(x>0, 1/x^k, 0) — вес 0 для x≤0 (SUMPRODUCT-safe, вместо #N/A или "").
+    # Индикатор участия I=1 только при C>0: x=0 исключается из WLS, но остаётся в ОМНК.
     for i in range(100):
         r = 9 + i
         src = 9 + i
@@ -486,27 +508,27 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         wls.cell(r, 2, f'=IF(A{r}="","",\'Ввод\'!F{src})').fill = calc_fill
         wls.cell(
             r, 3,
-            f'=IF(A{r}="","",CHOOSE(\'Ввод\'!$B$6,1,'
-            f'IF(A{r}>0,1/A{r},""),IF(A{r}>0,1/A{r}^2,"")))'
+            f'=IF(A{r}="",0,CHOOSE(\'Ввод\'!$B$6,1,'
+            f'IF(A{r}>0,1/A{r},0),IF(A{r}>0,1/A{r}^2,0)))'
         ).fill = calc_fill
-        wls.cell(r, 4, f'=IF(C{r}="","",C{r}*B{r})').fill = calc_fill
-        # I: 1 если точка участвует в WLS (числовой вес), иначе 0
-        wls.cell(r, 5, f'=IF(ISNUMBER(C{r}),1,0)').fill = calc_fill
-        wls.cell(r, 6, f'=IF(C{r}="","",C{r}/MAX($C$9:$C$108))').fill = calc_fill
-        wls.cell(r, 7, f'=IF(A{r}="","",A{r}*B{r})').fill = calc_fill          # xy
-        wls.cell(r, 8, f'=IF(C{r}="","",C{r}*A{r}*A{r})').fill = calc_fill     # w·x²
-        wls.cell(r, 9, f'=IF(C{r}="","",C{r}*C{r})').fill = calc_fill          # w²
-        wls.cell(r, 10, f'=IF(I{r}="","",I{r}*A{r}*A{r})').fill = calc_fill    # w²·x²
+        wls.cell(r, 4, f'=IF(A{r}="",0,C{r}*B{r})').fill = calc_fill
+        # I: 1 если точка участвует в WLS (вес>0), иначе 0
+        wls.cell(r, 5, f'=IF(A{r}="",0,IF(C{r}>0,1,0))').fill = calc_fill
+        wls.cell(r, 6, f'=IF(A{r}="",0,C{r}/MAX($C$9:$C$108))').fill = calc_fill
+        wls.cell(r, 7, f'=IF(A{r}="",0,A{r}*B{r})').fill = calc_fill          # xy
+        wls.cell(r, 8, f'=IF(A{r}="",0,C{r}*A{r}*A{r})').fill = calc_fill     # w·x²
+        wls.cell(r, 9, f'=IF(A{r}="",0,C{r}*C{r})').fill = calc_fill          # w²
+        wls.cell(r, 10, f'=IF(A{r}="",0,I{r}*A{r}*A{r})').fill = calc_fill    # w²·x²
         # e_w — остаток при текущих коэффициентах (зависит от B122/B123)
-        wls.cell(r, 11, f'=IF(B{r}="","",B{r}-$B$122*A{r}-$B$123)').fill = calc_fill
-        # L: w·e² — безопасно для пустых весов ("" не даст #VALUE!)
+        wls.cell(r, 11, f'=IF(B{r}="",0,B{r}-$B$122*A{r}-$B$123)').fill = calc_fill
+        # L: w·e² — 0 при пустой строке (SUMPRODUCT-safe)
         wls.cell(r, 12,
-                 f'=IF(OR(C{r}="",K{r}=""),"",C{r}*K{r}*K{r})').fill = calc_fill
+                 f'=IF(OR(A{r}="",K{r}=""),0,C{r}*K{r}*K{r})').fill = calc_fill
         # M: вес только для участвующих точек (0 вместо "" — SUMPRODUCT-safe)
-        wls.cell(r, 13, f'=IF(ISNUMBER(C{r}),C{r},0)').fill = calc_fill           # w_участн.
-        # O: w·(y−ŷ_ols)² для F-теста OLS vs WLS (A-06) — защита от пустого веса
+        wls.cell(r, 13, f'=IF(A{r}="",0,IF(ISNUMBER(C{r}),C{r},0))').fill = calc_fill   # w_участн.
+        # O: w·(y−ŷ_ols)² для F-теста OLS vs WLS (A-06) — 0 при пустой строке
         wls.cell(r, 15,
-                 f'=IF(OR(B{r}="",NOT(ISNUMBER(C{r}))),"",C{r}*(B{r}-'
+                 f'=IF(A{r}="",0,C{r}*(B{r}-'
                  f"'Регрессия'!$B$7*A{r}-'Регрессия'!$B$8)^2)").fill = calc_fill
 
     stat_labels = [
@@ -1137,6 +1159,191 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
              "книгу, разыграет 10⁵ сценариев и выведет сравнение и вердикт.")
 
     # ============================================================
+    # ЛИСТ 8В. БЮДЖЕТ НЕОПРЕДЕЛЁННОСТИ МЕТОДА (Б-01/R-05, Б-02/R-04, Б-03, Б-05, Б-06/R-10, Б-07)
+    # Сводная таблица: источник → u(x_i) → c_i → c_i·u → вклад % → ν_i.
+    # Строки 1..6: ввод (Recovery, разбавление); таблица бюджета с 8.
+    # ============================================================
+    bud = wb.create_sheet("Бюджет")
+    bud["A1"] = "БЮДЖЕТ НЕОПРЕДЕЛЁННОСТИ МЕТОДА (ISO 17025 / GUM)"
+    bud["A1"].font = Font(bold=True, size=15)
+    bud["A2"] = ("Сводная таблица вкладов в неопределённость концентрации. "
+                 "Калибровка (u_model, u_cal) подтягивается автоматически; "
+                 "Recovery, разбавление и прочие — заполняются из валидации метода.")
+    bud["A2"].font = Font(italic=True, color="808080")
+
+    # --- Ввод: Recovery (Б-02/R-04) ---
+    bud["A4"] = "Recovery (степень извлечения)"
+    bud["A4"].font = Font(bold=True)
+    bud["A5"] = "Rec (0..1, 1=100%)"
+    bud["B5"] = 0.9
+    bud["B5"].fill = input_fill
+    bud["B5"].number_format = "0.00"
+    bud["A6"] = "u(Rec)/Rec (отн.)"
+    bud["B6"] = 0.048
+    bud["B6"].fill = input_fill
+    bud["B6"].number_format = "0.00%"
+    bud["A7"] = "n_Rec (число спайков)"
+    bud["B7"] = 6
+    bud["B7"].fill = input_fill
+    bud["A8"] = "Rec значим? |1−Rec|/u(Rec) > 2"
+    bud["B8"] = "=IF(NOT(ISNUMBER(B5)),\"\",IF(ABS(1-B5)/(B6*B5)>2,\"значим — ввести поправку\",\"незначим\"))"
+    bud["B8"].fill = calc_fill
+
+    # --- Ввод: разбавление пробы (Б-06/R-10) ---
+    bud["A10"] = "Разбавление пробы"
+    bud["A10"].font = Font(bold=True)
+    bud["A11"] = "Коэффициент разбавления d"
+    bud["B11"] = 1
+    bud["B11"].fill = input_fill
+    bud["A12"] = "u(d)/d (отн.)"
+    bud["B12"] = 0.0
+    bud["B12"].fill = input_fill
+    bud["B12"].number_format = "0.00%"
+
+    # --- Таблица бюджета ---
+    bh = ["Источник", "u(x_i)/x (отн.)", "Чувствит. c_i", "Вклад c_i·u(x_i)", "Доля %", "ν_i"]
+    for c, h in enumerate(bh, 1):
+        bud.cell(14, c, h)
+    style_header(bud, 14, len(bh))
+
+    # u_model и u_cal подтягиваются из «Неопределенности»
+    budget_rows = [
+        # (метка, u_rel формула, c_i, ν_i)
+        ("Калибровка: u_model(x_pred)", "='Неопределенность'!B3/'Неопределенность'!B1", 1, "='Регрессия'!B2-2"),
+        ("Калибровка: u(x_cal) эталоны", "='Неопределенность'!B4/'Неопределенность'!B1", 1, 50),
+        ("Recovery u(Rec)/Rec", "=B6", 1, "=B7-1"),
+        ("Разбавление u(d)/d", "=B12", 1, 50),
+        ("Навеска u(m)/m (заполнить)", 0.005, 1, 50),
+        ("Объём u(V)/V (заполнить)", 0.005, 1, 50),
+        ("Неоднородность u(H)/H (заполнить)", 0.01, 1, 50),
+    ]
+    for i, (label, uf, ci, nuf) in enumerate(budget_rows):
+        r = 15 + i
+        bud.cell(r, 1, label)
+        cell = bud.cell(r, 2, uf)
+        cell.fill = calc_fill if isinstance(uf, str) and uf.startswith("=") else input_fill
+        cell.number_format = "0.00%"
+        bud.cell(r, 3, ci).fill = calc_fill
+        bud.cell(r, 4, f"=B{r}*C{r}").fill = calc_fill
+        bud.cell(r, 5, f"=IF(AND(D{r}<>\"\",D{r}>0),D{r}^2/SUMPRODUCT((D$15:D${15+len(budget_rows)-1}>0)*D$15:D${15+len(budget_rows)-1}^2),\"\")").fill = calc_fill
+        ncell = bud.cell(r, 6, nuf)
+        ncell.fill = calc_fill if isinstance(nuf, str) and str(nuf).startswith("=") else input_fill
+
+    b_last = 15 + len(budget_rows) - 1  # 21
+    # Итоги
+    bud.cell(b_last + 2, 1, "Суммарная u_rel (квадратично)").font = Font(bold=True)
+    bud.cell(b_last + 2, 2, "=SQRT(SUMSQ(D15:D21))").fill = calc_fill
+    bud.cell(b_last + 2, 2).number_format = "0.00%"
+    bud.cell(b_last + 3, 1, "ν_eff бюджета (Welch–Satterthwaite)").font = Font(bold=True)
+    bud.cell(b_last + 3, 2,
+             "=IF(B23=0,NA(),B23^4/(SUMPRODUCT((D15:D21>0)*D15:D21^4/F15:F21)))"
+             ).fill = calc_fill
+    bud.cell(b_last + 3, 2).number_format = "0.0"
+    # x_corr с учётом Rec и d
+    bud.cell(b_last + 5, 1, "x_corrected = x_pred·d/Rec").font = Font(bold=True)
+    bud.cell(b_last + 5, 2, "='Неопределенность'!B1*B11/B5").fill = calc_fill
+    bud.cell(b_last + 6, 1, "u_c(x_corr)/x_corr (суммарно)")
+    bud.cell(b_last + 6, 2,
+             "=SQRT(('Неопределенность'!B5/'Неопределенность'!B1)^2"
+             "+B12^2+B6^2)").fill = calc_fill
+    bud.cell(b_last + 6, 2).number_format = "0.00%"
+    bud.cell(b_last + 7, 1, "U(x_corr) = k·u_c(x_corr)")
+    bud.cell(b_last + 7, 2,
+             "='Неопределенность'!B12*B26*B27").fill = calc_fill
+
+    # Pareto-диаграмма вкладов (Б-05): столбчатая по «Доля %»
+    from openpyxl.chart import BarChart, Reference as Ref
+    pch = BarChart()
+    pch.title = "Pareto: вклады в неопределённость (%)"
+    pch.type = "col"
+    pch.height = 10
+    pch.width = 16
+    data = Ref(bud, min_col=5, min_row=14, max_row=b_last)
+    cats = Ref(bud, min_col=1, min_row=15, max_row=b_last)
+    pch.add_data(data, titles_from_data=True)
+    pch.set_categories(cats)
+    pch.legend = None
+    bud.add_chart(pch, "H4")
+
+    # ============================================================
+    # ЛИСТ 8Г. ИТОГ (R-08): формат результата для протокола + округление GUM (Б-03)
+    # ============================================================
+    itg = wb.create_sheet("Итог")
+    itg["A1"] = "РЕЗУЛЬТАТ ИЗМЕРЕНИЯ (для протокола)"
+    itg["A1"].font = Font(bold=True, size=15)
+
+    itg["A3"] = "Концентрация в пробе x_pred"
+    itg["B3"] = "='Неопределенность'!B1"
+    itg["B3"].fill = calc_fill
+    itg["A4"] = "Суммарная стандартная u_c"
+    itg["B4"] = "='Неопределенность'!B5"
+    itg["B4"].fill = calc_fill
+    itg["A5"] = "Степени свободы ν_eff"
+    itg["B5"] = "='Неопределенность'!B11"
+    itg["B5"].fill = calc_fill
+    itg["A6"] = "Коэффициент охвата k"
+    itg["B6"] = "='Неопределенность'!B12"
+    itg["B6"].fill = calc_fill
+    itg["A7"] = "Расширенная неопределённость U (k)"
+    itg["B7"] = "='Неопределенность'!B13"
+    itg["B7"].fill = calc_fill
+    itg["A8"] = "U_отн = U/x_pred"
+    itg["B8"] = "=IF(B3=0,NA(),B7/ABS(B3))"
+    itg["B8"].fill = calc_fill
+    itg["B8"].number_format = "0.0%"
+    itg["A9"] = "LOD / LOQ (контроль малых значений)"
+    itg["B9"] = "='Регрессия'!B19 & \" / \" & 'Регрессия'!B20"
+    itg["B9"].fill = calc_fill
+
+    # Б-03: округление по GUM 7.2.6 (U до 2 значащих цифр, x до разряда U)
+    itg["A11"] = "Округление по GUM 7.2.6 (Б-03)"
+    itg["A11"].font = Font(bold=True)
+    itg["A12"] = "U округлённое (2 зн. цифры)"
+    itg["B12"] = "=IF(ISNUMBER(B7),ROUND(B7,2-1-INT(LOG10(ABS(B7)))),NA())"
+    itg["B12"].fill = calc_fill
+    itg["A13"] = "x_pred округлённое (до разряда U)"
+    itg["B13"] = "=IF(ISNUMBER(B12),ROUND(B3,-INT(LOG10(ABS(B12)))+1),NA())"
+    itg["B13"].fill = calc_fill
+    itg["A14"] = "Формат результата"
+    itg["B14"] = '=IF(ISNUMBER(B13),"("&B13&" ± "&B12&") "&B9,"")'
+    itg["B14"].fill = calc_fill
+    itg["A15"] = "Статус (из «Валидации»)"
+    itg["B15"] = "='Валидация'!B24"
+    itg["B15"].fill = calc_fill
+
+    itg.conditional_formatting.add(
+        "B15", FormulaRule(formula=['ISNUMBER(SEARCH("ПРИНЯТА",$B$15))'], fill=pass_fill))
+    itg.conditional_formatting.add(
+        "B15", FormulaRule(formula=['ISNUMBER(SEARCH("ОТКЛОНЕНА",$B$15))'], fill=fail_fill))
+
+    # ============================================================
+    # ЛИСТ 8Д. УТВЕРЖДЕНИЕ (В-03): подписи для ISO 17025 7.8
+    # ============================================================
+    appr = wb.create_sheet("Утверждение")
+    appr["A1"] = "УТВЕРЖДЕНИЕ РЕЗУЛЬТАТА (ISO/IEC 17025, п. 7.8)"
+    appr["A1"].font = Font(bold=True, size=15)
+    sign_rows = [
+        ("Выполнил", ""), ("Проверил", ""), ("Утвердил", ""),
+    ]
+    for i, (role, _) in enumerate(sign_rows):
+        r = 3 + i
+        appr.cell(r, 1, role + ": ФИО").border = border
+        appr.cell(r, 2, "").border = border
+        appr.cell(r, 2).fill = input_fill
+        appr.cell(r, 3, "Подпись").border = border
+        appr.cell(r, 4, "").border = border
+        appr.cell(r, 4).fill = input_fill
+        appr.cell(r, 5, "Дата").border = border
+        appr.cell(r, 6, f'=IF(B{r}<>"",TEXT(TODAY(),"DD.MM.YYYY"),"")').border = border
+        appr.cell(r, 6).fill = calc_fill
+    appr["A7"] = "Заключение: "
+    appr["B7"] = "='Итог'!B15"
+    appr["B7"].fill = calc_fill
+    appr["A8"] = "Примечания"
+    appr["B8"] = ""
+    appr["B8"].fill = input_fill
+
+    # ============================================================
     # ЛИСТ 9. О КНИГЕ (TD-12: версия, дата, окружение, git)
     # ============================================================
     about = wb.create_sheet("О книге")
@@ -1266,6 +1473,25 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     prof.column_dimensions["A"].width = 12
     for col in ["D", "E", "F", "G", "H", "I", "J", "K"]:
         dg.column_dimensions[col].width = 15
+
+    # В-04: защита листов от случайной модификации формул.
+    # Разблокированы только зелёные ячейки ввода (fill input_fill).
+    PROTECT_PASSWORD = "metro2025"
+    PROTECT_EXCEPT = {"Ввод", "Стандарты", "Бюджет", "Утверждение", "Графики"}
+    for sh in wb.worksheets:
+        if sh.title in PROTECT_EXCEPT:
+            continue
+        for row in sh.iter_rows():
+            for cell in row:
+                if cell.fill and cell.fill.start_color.rgb == input_fill.start_color.rgb:
+                    cell.protection = Protection(locked=False)
+                else:
+                    cell.protection = Protection(locked=True)
+        sh.protection.sheet = True
+        sh.protection.password = PROTECT_PASSWORD
+        sh.protection.selectLockedCells = False
+        sh.protection.selectUnlockedCells = False
+        sh.protection.formatCells = False
 
     wb.save(output_path)
     print(f"Файл успешно сгенерирован: {output_path}")

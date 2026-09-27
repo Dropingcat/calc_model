@@ -163,6 +163,25 @@ def main():
             all_ok &= mode_ok
 
         print("\n=== ИТОГ CROSS-VALIDATION:", "ВСЁ СОВПАЛО ✅" if all_ok else "ЕСТЬ РАСХОЖДЕНИЯ ❌", "===")
+
+        # В-05: экспорт результата в result.json (для LIMS / журнала)
+        import json
+        import datetime as _dt
+        result = {
+            "timestamp": _dt.datetime.now().isoformat(timespec="seconds"),
+            "file": os.path.basename(FILE),
+            "x_pred": unc.Cells(1, 2).Value,
+            "u_c": unc.Cells(5, 2).Value,
+            "nu_eff": unc.Cells(11, 2).Value,
+            "k": unc.Cells(12, 2).Value,
+            "U": unc.Cells(13, 2).Value,
+            "mode": mode,
+            "status": "OK" if all_ok else "MISMATCH",
+        }
+        out_json = os.path.join(os.path.dirname(FILE), "result.json")
+        with open(out_json, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        print(f"Экспорт result.json: {out_json}")
         return 0 if all_ok else 1
 
     finally:
