@@ -28,7 +28,14 @@ def read_input(file):
     y_obs_rep = [inp.cell(r, 2).value for r in range(113, 116)
                  if isinstance(inp.cell(r, 2).value, (int, float))]
     p = inp["B4"].value or len(y_obs_rep)
-    u_rel = inp["B5"].value or 0.0
+    u_rel = inp["B5"].value
+    if not isinstance(u_rel, (int, float)):
+        # формула на «Стандарты» без кэша — считаем через calc_engine
+        try:
+            import calc_engine
+            u_rel = calc_engine._calc_u_rel(wb)
+        except Exception:
+            u_rel = 0.0
     mode = inp["B6"].value or 1
     xs, ys = [], []
     for r in range(9, 109):
@@ -105,10 +112,7 @@ def simulate(xs, ys, y_obs_rep, mode, u_rel, n_mc, seed=42):
     return b1_rep, b0_rep, xp_rep
 
 
-def main():
-    file = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "Metrology_Core_EURACHEM_v4.xlsx")
-    n_mc = int(sys.argv[2]) if len(sys.argv) > 2 else 100000
-
+def run(file, n_mc=100000):
     d = read_input(file)
     print(f"файл: {file}")
     print(f"режим весов: {d['mode']}, p={d['p']}, u_rel={d['u_rel']:.4f}, точек: {len(d['xs'])}")
@@ -121,15 +125,29 @@ def main():
     lo, hi = np.percentile(xp, [2.5, 97.5])
     U_mc = (hi - lo) / 2
 
-    # GUM-значения из книги (лист «Неопределенность»)
+    # GUM-значения из книги (лист «Неопределенность»); если кэша нет — считаем calc_engine
     unc = d["wb"]["Неопределенность"]
     x_gum = unc["B1"].value
     u_gum = unc["B5"].value
     U_gum = unc["B13"].value
     k = unc["B12"].value
+    if not all(isinstance(v, (int, float)) for v in (x_gum, u_gum, U_gum, k)):
+        try:
+            import calc_engine
+            import openpyxl as _op
+            wb2 = _op.load_workbook(file)  # data_only=False (формулы)
+            d2 = calc_engine.read_input(wb2)
+            r = calc_engine.compute_all(d2)
+            x_gum, u_gum, U_gum, k = r["x_pred"], r["u_c"], r["U"], r["k"]
+        except Exception as e:
+            print(f"  (GUM-fallback: {e})")
+            x_gum, u_gum, U_gum, k = (None, None, None, None)
 
     print("\n=== GUM (Excel) ===")
-    print(f"  x_pred = {x_gum:.9g}, u_c = {u_gum:.9g}, U = {U_gum:.9g}, k = {k:.4f}")
+    if all(isinstance(v, (int, float)) for v in (x_gum, u_gum, U_gum, k)):
+        print(f"  x_pred = {x_gum:.9g}, u_c = {u_gum:.9g}, U = {U_gum:.9g}, k = {k:.4f}")
+    else:
+        print("  (GUM-значения недоступны)")
     print("\n=== MC (JCGM 101) ===")
     print(f"  x_pred = {x_mc:.9g}, u_MC = {u_mc:.9g}")
     print(f"  95%%-интервал = [{lo:.9g}, {hi:.9g}], U_MC = {U_mc:.9g}")
@@ -137,8 +155,8 @@ def main():
     print(f"  b0: mean={np.mean(b0):.9g}, std={np.std(b0,ddof=1):.9g}")
 
     # Сравнение
-    rel_uc = abs(u_mc - u_gum) / u_gum if u_gum else math.nan
-    rel_U = abs(U_mc - U_gum) / U_gum if U_gum else math.nan
+    rel_uc = abs(u_mc - u_gum) / u_gum if (u_gum and u_gum > 0) else math.nan
+    rel_U = abs(U_mc - U_gum) / U_gum if (U_gum and U_gum > 0) else math.nan
     rel_x = abs(x_mc - x_gum) / abs(x_gum) if x_gum else math.nan
     ok_uc = rel_uc <= 0.05
     ok_U = rel_U <= 0.05
@@ -149,7 +167,8 @@ def main():
     print(f"  |x_MC−x_GUM|/x_GUM = {rel_x:.2%}   {'PASS' if ok_x else 'WARN'}")
     # Интерпретация по JCGM 101: при нелинейной обратной калибровке GUM
     # систематически занижает u на 5–15%. MC — эталон, GUM — аппроксимация.
-    max_rel = max(rel_uc, rel_U)
+    _rels = [r for r in (rel_uc, rel_U) if isinstance(r, (int, float)) and not math.isnan(r)]
+    max_rel = max(_rels) if _rels else 1.0
     if max_rel <= 0.05:
         verdict = "GUM и MC согласованы (≤5%) — можно использовать GUM-аппроксимацию."
         rc = 0
@@ -167,4 +186,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import os as _os
+    import sys as _sys
+    _file = _os.path.abspath(_sys.argv[1] if len(_sys.argv) > 1 else "Metrology_Core_EURACHEM_v4.xlsx")
+    _n = int(_sys.argv[2]) if len(_sys.argv) > 2 else 100000
+    _sys.exit(run(_file, _n))

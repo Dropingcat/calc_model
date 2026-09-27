@@ -109,3 +109,16 @@
 - Зависимости: python-docx, matplotlib (для графиков из данных).
 - Запуск: `python report_v4.py [файл.xlsx] [файл_result.json]` → `Отчёт_по_калибровке.docx`.
 - **Проверено**: отчёт сгенерирован — 20 параграфов, 4 таблицы (метаданные, бюджет, валидация, подписи), 3 графика (калибровка, профиль U, Pareto).
+
+## 2026-09-27: v5.5 — Портативный конвейер (cal_app.py + exe)
+- **cal_app.py** — единый CLI: `run` (полный цикл), `calc`, `validate`, `mc`, `report`. Две ветки: Excel (нужен COM) и Python/MC (автономно).
+- **calc_engine.py** — чистый Python-расчёт (без Excel COM): числа совпадают с Excel до 1e-13. `--no-excel` режим.
+- **validate_auto.py** — автономная кросс-валидация (numpy, без Excel).
+- **Костыль `--xlsx FILE`** — использовать внешний xlsx (свои данные).
+- **Отчёт из обеих веток**: `report_v4.py --from-py` (автономно) и из xlsx (кэш).
+- **exe (PyInstaller onefile, 96.6 МБ)** — работает с флешки на любом Windows без Python и Excel.
+  ВАЖНО: `HERE = dirname(sys.executable)` для frozen (иначе артефакты пишутся во временную _MEI папку и теряются).
+  UTF-8 принудительно в exe (иначе UnicodeEncodeError cp1251 на кириллице/стрелках).
+- **Git LFS** для `dist/cal_app.exe` (96 МБ, под лимитом 100 МБ).
+- **Тест флешки**: exe из изолированной папки (без .py) → xlsx + отчёт создаются рядом.
+- Тесты: e2e 20/20 PASS, validate совпала, lib_validate PASS, exe run PASS. Версия 5.5.0.

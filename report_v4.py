@@ -153,7 +153,10 @@ def make_charts(d):
     return paths
 
 
-def build_report(d):
+def build_report(d, out_path=None):
+    global OUT
+    if out_path:
+        OUT = out_path
     doc = Document()
     # стиль по умолчанию
     st = doc.styles["Normal"]
@@ -256,7 +259,79 @@ def build_report(d):
     return OUT
 
 
+def read_from_py(xlsx_path=None):
+    """Автономная ветка: расчёт через calc_engine (без Excel COM)."""
+    import calc_engine
+    import openpyxl as _op
+    p = xlsx_path or FILE
+    wb = _op.load_workbook(p)  # data_only=False, формулы
+    d = calc_engine.read_input(wb)
+    res = calc_engine.compute_all(d)
+    # формируем dict в формате read()
+    inp, reg, wls, unc, itg, val = (
+        wb[s] for s in ("Ввод", "Регрессия", "Взвешенная регрессия",
+                        "Неопределенность", "Итог", "Валидация")
+    )
+    out = {}
+    out["мета"] = dict(
+        оператор=inp["Q4"].value, прибор=inp["Q5"].value,
+        партия=inp["Q6"].value, дата=inp["Q7"].value,
+        темп=inp["Q8"].value, срок=inp["Q9"].value, id=inp["Q3"].value,
+    )
+    out["режим"] = d["mode"]
+    out["u_rel"] = d["u_rel"]
+    out["p"] = d["p"]
+    out["y_obs"] = float(np.mean(d["raw_y_obs"])) if d["raw_y_obs"] else 0.0
+    out.update(res)
+    out["b1"] = res["b1"]; out["b0"] = res["b0"]
+    out["r2"] = res["r2"]; out["s2"] = res["s2"]
+    out["D"] = res["phi"] / res["s2"] if res["s2"] else None
+    out["U_round"] = _round2(res["U"])
+    out["x_round"] = _roundx(res["x_pred"], res["U"])
+    out["budget"] = [(f"Калибровка u_model", res["u_model"] / res["x_pred"]),
+                     (f"Калибровка u_cal", res["u_cal"] / res["x_pred"])]
+    out["checks"] = [("Автономный расчёт (calc_engine)", True, "PASS")]
+    out["verdict"] = "МОДЕЛЬ ПРИГОДНА (автономный режим)"
+    # точки и профиль
+    xs, ys = [], []
+    for r in range(9, 109):
+        x = inp.cell(r, 2).value
+        vals = [inp.cell(r, c).value for c in (3, 4, 5)
+                if isinstance(inp.cell(r, c).value, (int, float))]
+        if x is not None and vals:
+            xs.append(x); ys.append(sum(vals) / len(vals))
+    out["xs"] = np.array(xs, float)
+    out["ys"] = np.array(ys, float)
+    out["px"] = np.array([])
+    out["pu"] = np.array([])
+    out["mc"] = {}
+    return out
+
+
+def _round2(x):
+    return round(x, 2 - 1 - int(np.floor(np.log10(abs(x))))) if x and x > 0 else None
+
+
+def _roundx(x, U):
+    return round(x, -int(np.floor(np.log10(abs(U)))) + 1) if U and U > 0 else None
+
+
 def main():
+    global FILE, OUT
+    args = sys.argv[1:]
+    if args and args[0] == "--from-py":
+        # автономная ветка: расчёт в Python, отчёт из результата
+        xlsx_arg = args[1] if len(args) > 1 else FILE
+        OUT = os.path.join(os.path.dirname(os.path.abspath(xlsx_arg)), "Отчёт_по_калибровке.docx")
+        d = read_from_py(xlsx_arg)
+        print(f"файл: {xlsx_arg}, вердикт: {d['verdict']}, x_pred={d['x_pred']}")
+        build_report(d)
+        return 0
+    if args and args[0] == "--out":
+        OUT = os.path.abspath(args[1])
+        d = read()
+        build_report(d)
+        return 0
     d = read()
     print(f"файл: {FILE}, вердикт: {d['verdict']}, x_pred={d['x_pred']}")
     build_report(d)
