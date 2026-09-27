@@ -42,7 +42,7 @@ import sys
 
 # TD-09/12: центральная конфигурация (без магических чисел) и метаданные версии.
 CONFIG = dict(
-    VERSION="5.2.0",
+    VERSION="5.4.0",
     MAX_POINTS=100,       # макс. строк калибровки (лимит TD-07)
     GRID_N=200,           # точек в профиле U(x)
     FIRST_DATA=9,         # первая строка данных на «Вводе»
@@ -103,6 +103,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     STD_LAST = STD_FIRST + L - 1        # 116
     STD_ITOG = STD_LAST + 8             # 124
     STD_UREL = f"'Стандарты'!$B${STD_ITOG}"
+    STD_NU = f"'Стандарты'!$B${STD_LAST + 2}"   # ν_эталонов (R-09), ячейка 118
 
     def add_name(name, ref):
         wb.defined_names.add(DefinedName(name, attr_text=ref))
@@ -323,7 +324,7 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
               "Источник/сертификат", "Приготовлен из маточника?",
               "Коэффициент разведения k_i", "u(x) серт. (абс.)",
               "Распределение", "Множитель k/√", "u(x) станд. (абс.)",
-              "u_rel = u/x", "Участвует в WLS?"]
+              "u_rel = u/x", "Участвует в WLS?", "ν_i (из сертификата)"]
     for c, h in enumerate(sh_std, 1):
         std.cell(16, c, h)
     style_header(std, 16, len(sh_std))
@@ -363,6 +364,14 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         std.cell(r, 11, f'=IF(AND(B{r}<>"",B{r}<>0),J{r}/B{r},"")').fill = calc_fill
         # Участвует в WLS? (все эталоны с концентрацией участвуют)
         std.cell(r, 12, f'=IF(B{r}="","",IF(B{r}>0,"да",""))').fill = calc_fill
+        # ν_i (R-09): степени свободы из сертификата (по умолчанию 50; 0 = "∞")
+        std.cell(r, 13, "50" if i < 6 else "").fill = input_fill
+
+    # Итог ν_эталонов (R-09): пользователь вводит ν из сертификатов.
+    # 0 = «бесконечность». Используется в ν_eff на листе «Неопределенность».
+    std.cell(STD_LAST + 2, 1, "ν_эталонов (из сертификатов; 0 = ∞)")
+    std.cell(STD_LAST + 2, 2, 50).fill = input_fill
+    std.cell(STD_LAST + 2, 2).number_format = "0"
 
     # Итоги блока 1
     N = CONFIG["MAX_POINTS"]
@@ -821,8 +830,9 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
          f"+(B1-{OO['xbar']})^2*{OO['vb1']})/{OO['b1']}^2", ""),
         ("ν (степени свободы модели)",
          f"=IF('Ввод'!$B$6=1,{OO['n']}-2,{WW['dofw']})", "0"),
-        ("ν_eff (Welch–Satterthwaite; ν_эталонов=50)",
-         "=IF(B5=0,NA(),B5^4/(B3^4/MAX(B10,1)+IF(B4=0,0,B4^4/50)))", "0.0"),
+        ("ν_eff (Welch–Satterthwaite; ν_эталонов из «Стандарты», R-09)",
+         f"=IF(B5=0,NA(),B5^4/(B3^4/MAX(B10,1)+"
+         f"IF(B4=0,0,B4^4/IF({STD_NU}>0,{STD_NU},100000))))", "0.0"),
         ("k (Стьюдент, TINV, двусторонний) — TD-04",
          "=IF(B11>0,TINV(1-'Ввод'!$B$7,MAX(ROUND(B11,0),1)),2)", "0.00"),
         ("U(x_pred) расширенная = k·u_c", "=B12*B5", ""),
@@ -1199,6 +1209,18 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     bud["B12"] = 0.0
     bud["B12"].fill = input_fill
     bud["B12"].number_format = "0.00%"
+    # Б-07: корреляция между компонентами (напр., эталоны и разбавление из одного маточника)
+    bud["A13"] = "Коррелировано с эталонами? (Б-07)"
+    bud["A13"].font = Font(bold=True)
+    bud["A14"] = "Флаг корреляции u(x_cal) и u(d) (0/1)"
+    bud["B14"] = 0
+    bud["B14"].fill = input_fill
+    bud["A15"] = "Коэффициент r(u_cal, u_d)"
+    bud["B15"] = 0.0
+    bud["B15"].fill = input_fill
+    bud["A16"] = "Ковариационный член 2·r·u_cal·u_d"
+    bud["B16"] = "=IF(B14=1,2*B15*'Неопределенность'!B4*B12,0)"
+    bud["B16"].fill = calc_fill
 
     # --- Таблица бюджета ---
     bh = ["Источник", "u(x_i)/x (отн.)", "Чувствит. c_i", "Вклад c_i·u(x_i)", "Доля %", "ν_i"]
@@ -1344,6 +1366,55 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     appr["B8"].fill = input_fill
 
     # ============================================================
+    # ЛИСТ 8Е. ИСТОРИЯ / КОНТРОЛЬНЫЕ КАРТЫ (В-02): тренды b1, b0, s_y/x
+    # Оператор ведёт журнал калибровок; текущие значения подтягиваются
+    # кнопкой/формулой для сравнения с предыдущими.
+    # ============================================================
+    hist = wb.create_sheet("История")
+    hist["A1"] = "ИСТОРИЯ КАЛИБРОВОК И КОНТРОЛЬНЫЕ КАРТЫ (В-02)"
+    hist["A1"].font = Font(bold=True, size=15)
+    hist["A2"] = ("Вести журнал: дата → b1, b0, s_y/x, R². "
+                  "Тренды показывают деградацию прибора. "
+                  "Текущие значения (строка 4) — ссылки на расчёт.")
+    hist["A2"].font = Font(italic=True, color="808080")
+
+    hh = ["Дата", "b1", "b0", "s_y/x", "R²", "Оператор", "Примечание"]
+    for c, h in enumerate(hh, 1):
+        hist.cell(4, c, h)
+    style_header(hist, 4, len(hh))
+    # Текущая калибровка (заполняется автоматически)
+    hist.cell(5, 1, "=TODAY()").fill = calc_fill
+    hist.cell(5, 2, "='Регрессия'!B7").fill = calc_fill
+    hist.cell(5, 3, "='Регрессия'!B8").fill = calc_fill
+    hist.cell(5, 4, "='Регрессия'!B18").fill = calc_fill
+    hist.cell(5, 5, "='Регрессия'!B12").fill = calc_fill
+    hist.cell(5, 6, "").fill = input_fill
+    hist.cell(5, 7, "текущая").fill = input_fill
+    # Пустые строки для журнала
+    for i in range(1, 20):
+        r = 5 + i
+        for c in range(1, 8):
+            hist.cell(r, c, "")
+            if c in (1, 6, 7):
+                hist.cell(r, c).fill = input_fill
+    hist.cell(5, 1).number_format = "DD.MM.YYYY"
+
+    # Контрольные карты (линии тренда b1, b0, s_y/x)
+    hist_ch = ScatterChart()
+    hist_ch.title = "Контрольная карта: b1 по датам"
+    hist_ch.style = 13
+    hist_ch.height = 9
+    hist_ch.width = 15
+    ref_d = Reference(hist, min_col=1, min_row=5, max_row=25)
+    ref_b1 = Reference(hist, min_col=2, min_row=5, max_row=25)
+    s_b1 = Series(ref_b1, ref_d, title_from_data=False)
+    s_b1.graphicalProperties.line.solidFill = "4F81BD"
+    s_b1.graphicalProperties.line.width = 18000
+    s_b1.marker.symbol = "circle"
+    hist_ch.series.append(s_b1)
+    hist.add_chart(hist_ch, "I5")
+
+    # ============================================================
     # ЛИСТ 9. О КНИГЕ (TD-12: версия, дата, окружение, git)
     # ============================================================
     about = wb.create_sheet("О книге")
@@ -1483,10 +1554,15 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
             continue
         for row in sh.iter_rows():
             for cell in row:
-                if cell.fill and cell.fill.start_color.rgb == input_fill.start_color.rgb:
-                    cell.protection = Protection(locked=False)
-                else:
-                    cell.protection = Protection(locked=True)
+                locked = True
+                try:
+                    if cell.fill is not None and cell.fill.fill_type == "solid" \
+                            and cell.fill.start_color is not None \
+                            and cell.fill.start_color.rgb == input_fill.start_color.rgb:
+                        locked = False
+                except Exception:
+                    pass
+                cell.protection = Protection(locked=locked)
         sh.protection.sheet = True
         sh.protection.password = PROTECT_PASSWORD
         sh.protection.selectLockedCells = False

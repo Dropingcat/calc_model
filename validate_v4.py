@@ -34,7 +34,7 @@ def main():
     excel.Visible = False
     excel.DisplayAlerts = False
     try:
-        wb = excel.Workbooks.Open(FILE, UpdateLinks=0, ReadOnly=True)
+        wb = excel.Workbooks.Open(FILE, UpdateLinks=0, ReadOnly=False)
         inp = wb.Sheets("Ввод")
         wls = wb.Sheets("Взвешенная регрессия")
         unc = wb.Sheets("Неопределенность")
@@ -163,6 +163,42 @@ def main():
             all_ok &= mode_ok
 
         print("\n=== ИТОГ CROSS-VALIDATION:", "ВСЁ СОВПАЛО ✅" if all_ok else "ЕСТЬ РАСХОЖДЕНИЯ ❌", "===")
+
+        # MC-03: численная валидация обратного предсказания (конечные разности)
+        # ∂x_pred/∂y_obs = 1/b1 (аналитически); численно: (x(y+δ)−x(y−δ))/(2δ)
+        print("\n=== MC-03: численная валидация ∂x/∂y (конечные разности) ===")
+        try:
+            y0 = inp.Cells(3, 2).Value
+            b113_orig = inp.Cells(113, 2).Value
+            delta = 1e-4 * max(abs(y0), 1e-6)
+            xp_plus = None
+            xp_minus = None
+            # y_obs зависит от повторностей пробы (B113:B115). Сдвигаем первую повторность.
+            for sign, store in ((1.0, "xp_plus"), (-1.0, "xp_minus")):
+                inp.Cells(113, 2).Value = b113_orig + sign * delta * 3
+                excel.CalculateFull()
+                time.sleep(0.2)
+                if store == "xp_plus":
+                    xp_plus = unc.Cells(1, 2).Value
+                else:
+                    xp_minus = unc.Cells(1, 2).Value
+            inp.Cells(113, 2).Value = b113_orig  # восстановить
+            excel.CalculateFull()
+            dnum = (xp_plus - xp_minus) / (2 * delta)
+            # x_pred считается в активном режиме весов: b1_w для WLS, b1_ОМНК для режима 1
+            if mode == 1:
+                b1_cur = reg.Cells(7, 2).Value
+            else:
+                b1_cur = wls.Cells(122, 2).Value
+            dana = 1.0 / b1_cur
+            rel = abs(dnum - dana) / abs(dana)
+            ok_fd = rel < 1e-4
+            all_ok &= ok_fd
+            print(f"  ∂x/∂y численно = {dnum:.9g}, аналитически 1/b1 = {dana:.9g}")
+            print(f"  относит. расхождение = {rel:.2e}  {'PASS' if ok_fd else 'FAIL'}")
+        except Exception as e:
+            print(f"  MC-03 ошибка: {e}")
+            all_ok = False
 
         # В-05: экспорт результата в result.json (для LIMS / журнала)
         import json
