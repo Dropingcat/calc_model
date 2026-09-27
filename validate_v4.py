@@ -112,8 +112,8 @@ def main():
             dof = n_eff - 2
             phi = SSEw / dof
             vb1w = phi / Sxxw
-            sumw2x2 = (w * w * x * x).sum()
-            vb0w = phi * sumw2x2 / (Sw * Sxxw)
+            sumwx2 = (w * x * x).sum()      # Σw·x² — правильный член (XᵀWX)⁻¹
+            vb0w = phi * sumwx2 / (Sw * Sxxw)
             covw = -phi * Swx / (Sw * Sxxw)
             xbw = Swx / Sw
 
@@ -123,10 +123,9 @@ def main():
                 # классическая интервальная форма EURACHEM
                 u2 = s2 / b1w ** 2 * (1 / p + 1 / n + (x0 - xb) ** 2 / Sxx)
             else:
-                # ковариационная форма с учётом весов (WLS)
-                dx = x0 - xbw + b0w / b1w
-                u2 = (phi * (1 / p + 1 / Sw) + dx ** 2 * vb1w + vb0w
-                      + 2 * dx * covw) / b1w ** 2
+                # R-01: единая интервальная форма WLS (независимо от Excel)
+                #   u² = φ_w·(1/p + 1/Σw + (x−x̄_w)²/Sxx_w)/b1_w²
+                u2 = phi * (1 / p + 1 / Sw + (x0 - xbw) ** 2 / Sxxw) / b1w ** 2
             u2_cal = (x0 * u_rel) ** 2
             u2_c = u2 + u2_cal
             nu_model = dof
@@ -138,10 +137,10 @@ def main():
             # чтение Excel
             row_of = {"Sw": 115, "Swx": 116, "Sxxw": 118, "Sxyw": 119, "n_eff": 120,
                       "b1w": 122, "b0w": 123, "SSEw": 124, "phi": 125,
-                      "vb1w": 126, "vb0w": 127, "covw": 128, "sumw2x2": 132}
+                      "vb1w": 126, "vb0w": 127, "covw": 128}
             exp = {"Sw": Sw, "Swx": Swx, "Sxxw": Sxxw, "Sxyw": Sxyw, "n_eff": n_eff,
                    "b1w": b1w, "b0w": b0w, "SSEw": SSEw, "phi": phi,
-                   "vb1w": vb1w, "vb0w": vb0w, "covw": covw, "sumw2x2": sumw2x2}
+                   "vb1w": vb1w, "vb0w": vb0w, "covw": covw}
             e_x0 = unc.Cells(1, 2).Value
             e_u2 = unc.Cells(2, 2).Value
             e_uc = unc.Cells(5, 2).Value

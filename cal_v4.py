@@ -42,7 +42,7 @@ import sys
 
 # TD-09/12: центральная конфигурация (без магических чисел) и метаданные версии.
 CONFIG = dict(
-    VERSION="4.3.0",
+    VERSION="5.0.0",
     MAX_POINTS=100,       # макс. строк калибровки (лимит TD-07)
     GRID_N=200,           # точек в профиле U(x)
     FIRST_DATA=9,         # первая строка данных на «Вводе»
@@ -506,8 +506,10 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         "=SUM(WLS_WE2)",                                      # B124 SSE_w
         "=IF(B121>0,B124/B121,NA())",                          # B125 φ_w
         "=B125/B118",                                          # B126 var(b1)_w
-        # TD-02: полная форма: var(b0)_w = φ_w·Σw²x²/(Σw·Sxx_w)
-        "=B125*B132/(B115*B118)",                              # B127 var(b0)_w
+        # R-01 (из внешнего аудита): var(b0)_w = φ_w·Σ(w·x²)/(Σw·Sxx_w)
+        #   строгая форма (XᵀWX)⁻¹ требует Σw·x² (столбец H = WLS_WX2),
+        #   НЕ Σw²·x² (столбец J). При w=1/x² разница ~7×.
+        "=B125*SUM(WLS_WX2)/(B115*B118)",                    # B127 var(b0)_w
         "=-B125*B116/(B115*B118)",                             # B128 cov_w
         "=B116/B115",                                          # B129 x̄_w
         "=IF('Регрессия'!B7=0,NA(),ABS(B122-'Регрессия'!B7)/ABS('Регрессия'!B7))",   # B130
@@ -672,13 +674,15 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
     unc["A1"].font = Font(bold=True, size=15)
 
     d_ols = f"$B$1-{OO['xbar']}"
-    d_wls = f"$B$1-{WW['xbarw']}+{WW['b0']}/{WW['b1']}"
+    # R-01/WLS-формы: для WLS единая интервальная форма
+    #   u²(x_pred) = φ_w·(1/p + 1/Σw + (x−x̄_w)²/Sxx_w)/b1_w²
+    # (без лишних var(b0), 2·d·cov и смещения +b0/b1 в d — это были F-04/R-14).
     u2_model = (
         f"IF('Ввод'!$B$6=1,"
-        f"{OO['s2']}*(1/'Ввод'!$B$4+1/{OO['n']}+({d_ols})^2/{OO['Sxx']}),"
-        f"{WW['phi']}*(1/'Ввод'!$B$4+1/{WW['Sw']})"
-        f"+({d_wls})^2*{WW['vb1']}+{WW['vb0']}+2*({d_wls})*{WW['cov']})"
-        f"/IF('Ввод'!$B$6=1,{OO['b1']},{WW['b1']})^2"
+        f"{OO['s2']}*(1/'Ввод'!$B$4+1/{OO['n']}+({d_ols})^2/{OO['Sxx']})"
+        f"/{OO['b1']}^2,"
+        f"{WW['phi']}*(1/'Ввод'!$B$4+1/{WW['Sw']}"
+        f"+($B$1-{WW['xbarw']})^2/{WW['Sxxw']})/{WW['b1']}^2)"
     )
 
     layout = [
@@ -768,15 +772,15 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
                  f'=IF(B{r}="","",SQRT(N(D{r})^2+I{r}^2+(B{r}*\'Ввод\'!$B$5)^2))'
                  ).fill = calc_fill
         d_ols_r = f"(B{r}-{OO['xbar']})"
-        d_wls_r = f"(B{r}-{WW['xbarw']}+{WW['b0']}/{WW['b1']})"
+        d_wls_r = f"(B{r}-{WW['xbarw']})"
         pts.cell(
             r, 11,
             f'=IF(B{r}="","",SQRT('
             f"IF('Ввод'!$B$6=1,"
-            f"{OO['s2']}*(1/E{r}+1/{OO['n']}+{d_ols_r}^2/{OO['Sxx']}),"
-            f"{WW['phi']}*(1/E{r}+1/{WW['Sw']})"
-            f"+{d_wls_r}^2*{WW['vb1']}+{WW['vb0']}+2*{d_wls_r}*{WW['cov']})"
-            f"/IF('Ввод'!$B$6=1,{OO['b1']},{WW['b1']})^2"
+            f"{OO['s2']}*(1/E{r}+1/{OO['n']}+{d_ols_r}^2/{OO['Sxx']})"
+            f"/{OO['b1']}^2,"
+            f"{WW['phi']}*(1/E{r}+1/{WW['Sw']}"
+            f"+{d_wls_r}^2/{WW['Sxxw']})/{WW['b1']}^2)"
             f"+(B{r}*'Ввод'!$B$5)^2))"
         ).fill = calc_fill
         pts.cell(r, 12, f'=IF(K{r}="","",$B$3*K{r})').fill = calc_fill
@@ -810,15 +814,15 @@ def create_metrology_excel_v4(output_path="Metrology_Core_EURACHEM_v4.xlsx"):
         prof.cell(
             r, 2,
             f'=IF(\'Ввод\'!$B$6=1,A{r}-{OO["xbar"]},'
-            f"A{r}-{WW['xbarw']}+{WW['b0']}/{WW['b1']})"
+            f"A{r}-{WW['xbarw']})"
         ).fill = calc_fill
         prof.cell(
             r, 3,
             f"=IF('Ввод'!$B$6=1,"
-            f"{OO['s2']}*(1/'Ввод'!$B$4+1/{OO['n']}+B{r}^2/{OO['Sxx']}),"
-            f"{WW['phi']}*(1/'Ввод'!$B$4+1/{WW['Sw']})"
-            f"+B{r}^2*{WW['vb1']}+{WW['vb0']}+2*B{r}*{WW['cov']})"
-            f"/IF('Ввод'!$B$6=1,{OO['b1']},{WW['b1']})^2"
+            f"{OO['s2']}*(1/'Ввод'!$B$4+1/{OO['n']}+B{r}^2/{OO['Sxx']})"
+            f"/{OO['b1']}^2,"
+            f"{WW['phi']}*(1/'Ввод'!$B$4+1/{WW['Sw']}"
+            f"+B{r}^2/{WW['Sxxw']})/{WW['b1']}^2)"
         ).fill = calc_fill
         prof.cell(r, 4, f'=IF(C{r}<0,NA(),SQRT(C{r}))').fill = calc_fill
         prof.cell(r, 5, f"=SQRT(D{r}^2+(A{r}*'Ввод'!$B$5)^2)").fill = calc_fill
