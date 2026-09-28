@@ -9,3 +9,4 @@ result.json
 *.docx
 build/
 *.spec
+dist/

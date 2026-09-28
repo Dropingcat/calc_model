@@ -23,17 +23,20 @@
 
 ### Вариант 1 — портативный exe (рекомендуется, без Python)
 
-1. Скопируйте `dist/cal_app.exe` на флешку.
-2. **Двойной клик** — автоматически выполнит полный цикл (расчёт → валидация → Monte Carlo → отчёт Word),
-   в конце — «Нажмите Enter для закрытия». Или в cmd:
+1. Скопируйте папку `dist/cal_app/` (exe + `_internal`) на флешку.
+2. **Двойной клик** `cal_app.exe` — откроется **графический интерфейс с вкладками**:
+   заполните «Базовые», «Калибровка», «Стандарты», «Бюджет», нажмите «Сохранить и рассчитать»,
+   затем «Отчёт Word».
+3. Или в cmd (консольный режим):
    ```
+   cal_app.exe gui            → графический интерфейс
    cal_app.exe run            → полный цикл: расчёт → валидация → Monte Carlo → отчёт Word
    cal_app.exe calc           → только расчёт (создаёт Metrology_Core_EURACHEM_v4.xlsx)
    cal_app.exe mc 100000      → Monte Carlo, 100000 итераций
    cal_app.exe report         → отчёт Word (после расчёта)
    ```
-3. В папке exe появятся: `Metrology_Core_EURACHEM_v4.xlsx`, `result.json`, `Отчёт_по_калибровке.docx`.
-4. Правьте данные в зелёных ячейках xlsx и перезапустите `cal_app.exe run`.
+4. В папке exe появятся: `Metrology_Core_EURACHEM_v4.xlsx`, `result.json`, `Отчёт_по_калибровке.docx`.
+5. Правьте данные в зелёных ячейках xlsx и перезапустите `cal_app.exe run`.
 
 ### Вариант 2 — из исходников (Python)
 
@@ -54,13 +57,13 @@ python report_v4.py              # отчёт Word из xlsx
 
 ```
 pip install pyinstaller
-python -m PyInstaller --onefile --console --name cal_app --clean --noconfirm cal_app.py \
+python -m PyInstaller --onedir --console --name cal_app --clean --noconfirm cal_app.py \
   --hidden-import scipy --hidden-import matplotlib --hidden-import win32com \
   --collect-submodules scipy --collect-data matplotlib
 ```
-Результат: `dist/cal_app.exe` (~97 МБ: scipy + matplotlib). ВАЖНО: без `--collect-data matplotlib`
-распаковка шрифтов в onefile ломается (`Failed to extract DejaVuSans-Oblique.ttf`).
-Для уменьшения размера можно исключить `win32com` (тогда только Python/MC-ветка).
+Результат: папка `dist/cal_app/` (exe + `_internal`). ВАЖНО: без `--collect-data matplotlib`
+распаковка шрифтов ломается (`Failed to extract DejaVuSans-Oblique.ttf`). onefile с tkinter+scipy
+собирается слишком долго — используйте onedir. Для уменьшения размера можно исключить `win32com`.
 
 ## Структура проекта
 

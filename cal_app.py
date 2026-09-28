@@ -36,6 +36,7 @@ import validate_auto  # noqa: F401
 import mc_v4  # noqa: F401
 import report_v4  # noqa: F401
 import cal_v4  # noqa: F401
+import gui  # noqa: F401
 
 # Папка исполняемого файла (exe) или скрипта — туда пишем артефакты.
 # ВАЖНО для PyInstaller onefile: __file__ указывает на временную распаковку,
@@ -108,6 +109,11 @@ def cmd_report(args):
     return report_v4.main()
 
 
+def cmd_gui(_args):
+    """Запуск графического интерфейса (tkinter)."""
+    return gui.main()
+
+
 def cmd_run(args):
     xlsx, use_excel, _ = _parse(args)
     if use_excel and has_excel():
@@ -125,10 +131,10 @@ def cmd_run(args):
 
 def main():
     if len(sys.argv) < 2:
-        # Двойной клик по exe (без аргументов): сразу полный цикл, без help.
-        print("Запуск по двойному клику — выполняю полный цикл (run).")
-        print("Подсказка: `cal_app.exe help` — список команд.\n")
-        rc = cmd_run([])
+        # Двойной клик по exe (без аргументов): открываем ГРАФИЧЕСКИЙ интерфейс.
+        print("Запуск по двойному клику — открываю графический интерфейс (gui).")
+        print("Подсказка: `cal_app.exe run` — консольный полный цикл; `cal_app.exe help` — список.\n")
+        rc = cmd_gui([])
         _pause()
         return rc
     cmd = sys.argv[1]
@@ -143,6 +149,7 @@ def main():
         "validate": cmd_validate,
         "mc": cmd_mc,
         "report": cmd_report,
+        "gui": cmd_gui,
     }
     fn = dispatch.get(cmd)
     if fn is None:
