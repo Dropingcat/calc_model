@@ -122,3 +122,10 @@
 - **Git LFS** для `dist/cal_app.exe` (96 МБ, под лимитом 100 МБ).
 - **Тест флешки**: exe из изолированной папки (без .py) → xlsx + отчёт создаются рядом.
 - Тесты: e2e 20/20 PASS, validate совпала, lib_validate PASS, exe run PASS. Версия 5.5.0.
+
+## 2026-09-27: v5.5.1 — фиксы exe (двойной клик, DejaVuSans)
+- **Двойной клик**: без аргументов exe теперь выполняет полный цикл `run` (вместо help) и ждёт Enter.
+  Пауза только в double-click-ветке и help (явные команды из cmd — без паузы).
+- **Баг DejaVuSans-Oblique.ttf**: `--onefile` без `--collect-data matplotlib` ломал распаковку шрифтов
+  (decompression return code -1). Исправлено добавлением `--collect-data matplotlib`. Проверено: отчёт с 3 графиками.
+- Проверено: onefile 96.7 МБ из изолированной папки → полный цикл + отчёт OK. Версия 5.5.1.

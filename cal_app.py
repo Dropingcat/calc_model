@@ -125,10 +125,18 @@ def cmd_run(args):
 
 def main():
     if len(sys.argv) < 2:
-        print(__doc__)
-        return 0
+        # Двойной клик по exe (без аргументов): сразу полный цикл, без help.
+        print("Запуск по двойному клику — выполняю полный цикл (run).")
+        print("Подсказка: `cal_app.exe help` — список команд.\n")
+        rc = cmd_run([])
+        _pause()
+        return rc
     cmd = sys.argv[1]
     args = sys.argv[2:]
+    if cmd in ("help", "-h", "--help"):
+        print(__doc__)
+        _pause()
+        return 0
     dispatch = {
         "run": cmd_run,
         "calc": cmd_calc,
@@ -141,6 +149,13 @@ def main():
         print(__doc__)
         return 2
     return fn(args)
+
+
+def _pause():
+    try:
+        input("\nНажмите Enter для закрытия...")
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

@@ -24,7 +24,8 @@
 ### Вариант 1 — портативный exe (рекомендуется, без Python)
 
 1. Скопируйте `dist/cal_app.exe` на флешку.
-2. Дважды кликните или в cmd:
+2. **Двойной клик** — автоматически выполнит полный цикл (расчёт → валидация → Monte Carlo → отчёт Word),
+   в конце — «Нажмите Enter для закрытия». Или в cmd:
    ```
    cal_app.exe run            → полный цикл: расчёт → валидация → Monte Carlo → отчёт Word
    cal_app.exe calc           → только расчёт (создаёт Metrology_Core_EURACHEM_v4.xlsx)
@@ -55,10 +56,11 @@ python report_v4.py              # отчёт Word из xlsx
 pip install pyinstaller
 python -m PyInstaller --onefile --console --name cal_app --clean --noconfirm cal_app.py \
   --hidden-import scipy --hidden-import matplotlib --hidden-import win32com \
-  --collect-submodules scipy
+  --collect-submodules scipy --collect-data matplotlib
 ```
-Результат: `dist/cal_app.exe` (~100 МБ: scipy + matplotlib). Для уменьшения размера можно
-исключить `win32com` (тогда только Python/MC-ветка).
+Результат: `dist/cal_app.exe` (~97 МБ: scipy + matplotlib). ВАЖНО: без `--collect-data matplotlib`
+распаковка шрифтов в onefile ломается (`Failed to extract DejaVuSans-Oblique.ttf`).
+Для уменьшения размера можно исключить `win32com` (тогда только Python/MC-ветка).
 
 ## Структура проекта
 
