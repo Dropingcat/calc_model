@@ -10,3 +10,5 @@ result.json
 build/
 *.spec
 dist/
+__pycache__/
+*.pyc
