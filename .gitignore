@@ -1,8 +1,15 @@
+# Secrets & локальные окружения — никогда не коммитить
+.env
+*.token
+
 # Python compiled files
 __pycache__/
 *.pyc
+.pytest_cache/
 
-# Environment files
-.env
-# локальные секреты — никогда не коммитить
-.env
+# Артефакты расчётов/сборки (книги версионируются явно через new_versions_*)
+result.json
+build/
+dist/
+*.spec
+Отчёт_по_калибровке.docx
