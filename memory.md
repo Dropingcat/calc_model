@@ -54,3 +54,11 @@ cat /workspace/.env              # значение токена (не пока�
 - Причина: работа велась в feature-ветке, список EXPECTED был захардкожен под неё; ветка `main` в remote не отслеживалась.
 - Исправление: синхронизирована локальная ветка `main` с `origin/main` (db629c9, v6.0 GUI) — теперь в `/workspace` лежат **фактические файлы из репозитория** (gui.py, cal_app.py, calc_engine.py, validate_*.py, mc_v4.py, report_v4.py, тесты); EXPECTED в verify_repo.py приведён к 23 файлам main; правило: работать в main, перед стартом pull/сверка.
 - Ключевое: скрипт сверки обязан проверять ту ветку, которая является источником истины (main), а не историческую feature-ветку.
+
+## Деплой «nd fils» (2026-10-07, коммит 9d6aa1f) — фракционный состав
+НОВЫЕ папки в main (скачаны через git pull, сверены GitHub API: 72 файла sha-в-sha, расхождений 0):
+- `fraction_lib/` — Python-библиотека расчёта фракцсостава (ГОСТ 2177, ISO 3405, ASTM D86, D1160): base/models/constants/validation + tests/. Прогон: **187 passed** (нужен pytest.ini: addopts=-p no:libtmux — системный плагин libtmux ломает pytest 9.1.1).
+- `fix_fraction/` — скрипты починки Excel-книг (ФР-01..06,13,16; REPORT.md: 135 PASS на машине заказчика). ВНИМАНИЕ: жёсткие Windows-пути `C:\Users\Arhys\Desktop\каллибровка/фракционный состав` — в Linux test_fix.py падает FileNotFoundError; книги теперь в `new_versions_v4*/`.
+- `new_versions_v4/` — 6 книг v3.11; `new_versions_v4.1/` — 2 книги v3.12 «нормативно аудированные».
+- По PROGRESS.md открыто: пункт 6 (тройная валидация: validation.py + test_normative/test_cleanroom), README, ритуал закрытия.
+- УРОК: деплой снова прошёл мимо локальной копии — правило №1 (fetch/pull+сверка перед работой) подтверждено. В репо попал __pycache__/*.pyc → добавил `__pycache__/`, `*.pyc` в .gitignore (f57ca62); историю не чистил.
