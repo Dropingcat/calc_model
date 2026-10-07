@@ -45,30 +45,53 @@ class D86Calculator(BaseDistillationCalculator):
             raise ValueError(f"object_type должен быть группой 1-4, получено: {inp.object_type!r}")
 
     # ------------------------------------------------------------------
+    # Диапазон сингулярности/экстремума формулы 11.4 (мм рт.ст.):
+    # denom = 1 + (760-P)/60 → 0 при P ≈ 820 мм (≈109,3 кПа).
+    LOSS_SINGULAR_MMHG_LO = 810.0
+    LOSS_SINGULAR_MMHG_HI = 830.0
+
     def _correct_loss(self, loss_pct: float, inp: FractionInput) -> float:
-        """Коррекция потерь D86 (11.4):
+        """Коррекция потерь D86 (11.4, ASTM D86-23):
 
         кПа: Lc = 0,5 + (L − 0,5)/(1 + (101,3 − P)/8,00)
         мм:  Lc = 0,5 + (L − 0,5)/(1 + (760 − P)/60,0)
 
-        Область применимости: формула для давления НИЖЕ стандартного.
-        При P > 760 мм (101,3 кПа) знаменатель обращается в 0 при ~820 мм,
-        а коррекция даёт отрицательные потери — физически абсурдно.
-        Поэтому при P > 760 мм потери НЕ корректируются (возврат loss_pct).
+        TD-D86-001 (синхронизация с книгой v3.12): единая формула
+        применяется для ВСЕГО диапазона давлений, включая P > 760 мм.
+        Ранее при P > 760 коррекция молча отключалась — это расходилось
+        с D86-23 и с Excel-книгой ASTM_D86_ручной_метод_v3.12.
+
+        Защита от деления на ноль: вблизи P ≈ 820 мм (109,3 кПа)
+        знаменатель → 0; там возвращаем наблюдаемые потери без
+        изменения и добавляем предупреждение LOSS_CORR_UNSTABLE
+        (флаг через inp._d86_loss_flags, подхватывается calculate()).
         """
         if inp.pressure_unit.lower() in ("kpa", "кпа"):
             p = inp.pressure_kpa()
-            if p > LOSS_CORR_KPA_STD:
-                return loss_pct
             denom = 1.0 + (LOSS_CORR_KPA_STD - p) / 8.00
         else:
             p = inp.pressure_mmhg()
-            if p > LOSS_CORR_MMHG_STD:
-                return loss_pct
             denom = 1.0 + (LOSS_CORR_MMHG_STD - p) / LOSS_CORR_MMHG_DIV
-        if abs(denom) < 1e-9:
+
+        if abs(denom) < 1e-9 or self.LOSS_SINGULAR_MMHG_LO <= p <= self.LOSS_SINGULAR_MMHG_HI:
+            self._flag_loss(inp, f"LOSS_CORR_UNSTABLE:P={p:.1f}mm(знаменатель~0),потери без коррекции")
             return loss_pct
-        return 0.5 + (loss_pct - 0.5) / denom
+        lc = 0.5 + (loss_pct - 0.5) / denom
+        if lc < 0:
+            # физически абсурдный результат (P сильно выше 820 мм)
+            self._flag_loss(inp, f"LOSS_CORR_NEGATIVE:Lc={lc:.2f}<0,P={p:.1f}mm")
+            return loss_pct
+        return lc
+
+    @staticmethod
+    def _flag_loss(inp: FractionInput, msg: str) -> None:
+        """Собрать предупреждение о коррекции потерь (подхватится base.calculate)."""
+        flags = getattr(inp, "_d86_loss_flags", None)
+        if flags is None:
+            flags = []
+            setattr(inp, "_d86_loss_flags", flags)
+        if msg not in flags:
+            flags.append(msg)
 
     # ------------------------------------------------------------------
     def _precision_all(self, points, t_corr, slopes, inp) -> tuple[dict, dict]:

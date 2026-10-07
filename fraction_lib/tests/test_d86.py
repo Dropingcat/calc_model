@@ -47,7 +47,11 @@ class TestYoungCorrection:
 
 
 class TestLossCorrection:
-    """Lc = 0,5 + (L − 0,5)/(1 + (760 − P)/60,0) (11.4, формула 7)."""
+    """Lc = 0,5 + (L − 0,5)/(1 + (760 − P)/60,0) (11.4, формула 7).
+
+    TD-D86-001: единая формула D86-23 для всего диапазона, включая P > 760 мм;
+    защита от сингулярности у P ≈ 820 мм через флаг LOSS_CORR_UNSTABLE.
+    """
 
     def test_loss_mmhg_formula(self, calc):
         """P=760 → Lc = L."""
@@ -58,6 +62,52 @@ class TestLossCorrection:
         """P=101.3 кПа → Lc = L (знаменатель = 1)."""
         inp = FractionInput(P_atm=101.3, pressure_unit="kPa")
         assert calc._correct_loss(2.5, inp) == pytest.approx(2.5, abs=1e-9)
+
+    def test_loss_below_std_p740(self, calc):
+        """P=740 мм (denom=1.3333) → Lc = 0.5 + 2.0/1.3333 = 2.0."""
+        inp = FractionInput(P_atm=740.0)
+        assert calc._correct_loss(2.5, inp) == pytest.approx(2.0, abs=1e-9)
+
+    def test_loss_above_760_corrected_not_disabled(self, calc):
+        """TD-D86-001: P=780 мм коррекция НЕ отключается: denom=0.6667,
+        Lc = 0.5 + 2.0/0.6667 = 3.5 (совпадает с книгой v3.12)."""
+        inp = FractionInput(P_atm=780.0)
+        assert calc._correct_loss(2.5, inp) == pytest.approx(3.5, abs=1e-9)
+
+    def test_loss_above_760_kpa_equivalent(self, calc):
+        """кПа-форма при том же давлении даёт тот же Lc.
+
+        Нормативные формы (101,3−P)/8 и (760−P)/60 не строго эквивалентны
+        из-за округления констант ASTM: расхождение ~0.4% на сотнях мм рт.ст.
+        Допуск rel=1e-2; каноническая для Excel-книги — мм-форма.
+        """
+        mm = FractionInput(P_atm=780.0)
+        kpa = FractionInput(P_atm=780.0 * 0.133322, pressure_unit="kPa")
+        assert calc._correct_loss(2.5, mm) == pytest.approx(calc._correct_loss(2.5, kpa), rel=1e-2)
+
+    def test_loss_singular_820_no_crash_flagged(self, calc):
+        """P≈820 мм: знаменатель → 0 — без ZeroDivisionError, возврат L, флаг."""
+        inp = FractionInput(P_atm=820.0)
+        assert calc._correct_loss(2.5, inp) == pytest.approx(2.5, abs=1e-9)
+        flags = getattr(inp, "_d86_loss_flags", [])
+        assert any(f.startswith("LOSS_CORR_UNSTABLE") for f in flags)
+
+    def test_loss_negative_result_guard(self, calc):
+        """P=850 мм: Lc<0 физически абсурдно → возврат L + LOSS_CORR_NEGATIVE."""
+        inp = FractionInput(P_atm=850.0)
+        assert calc._correct_loss(2.5, inp) == pytest.approx(2.5, abs=1e-9)
+        flags = getattr(inp, "_d86_loss_flags", [])
+        assert any(f.startswith("LOSS_CORR_NEGATIVE") for f in flags)
+
+    def test_full_pipeline_carries_loss_flag(self, calc):
+        """Сквозной расчёт при P=820: результат получен, флаг в Flags, без падения."""
+        inp = FractionInput(
+            P_atm=820.0, object_type="1", V_pct=[98.5],
+            T_obs={0: 40.0, 10: 70.0, 50: 120.0, 90: 175.0, 95: 185.0, 100: 200.0},
+            loss_pct=1.0, residue_pct=0.5,
+        )
+        res = calc.calculate(inp)
+        assert any(str(f).startswith("LOSS_CORR_UNSTABLE") for f in res.Flags)
 
 
 class TestPrecisionGroup1Table8:

@@ -75,10 +75,17 @@ class TestD86LossPole:
         res = D86Calculator().calculate(mk_d86(P))
         assert 0.0 <= res.Loss <= 5.0, f"Loss={res.Loss} при P={P}"
 
-    @pytest.mark.parametrize("P", [800.0, 820.0, 900.0, 2000.0])
+    @pytest.mark.parametrize("P", [800.0, 900.0, 2000.0])
     def test_loss_equals_observed_above_760(self, P):
+        """TD-D86-001: при P > 760 коррекция НЕ отключается (единая формула D86-23).
+
+        Проверяем: Lc конечна, ≠ наблюдаемым потерям (коррекция применена),
+        без полюса/отрицательных значений вне зоны сингулярности 810–830 мм.
+        """
         res = D86Calculator().calculate(mk_d86(P, loss=0.7))
-        assert abs(res.Loss - 0.7) < 1e-9, f"Loss={res.Loss}, ожидалось 0.7"
+        assert not math.isnan(res.Loss) and res.Loss >= 0.0
+        if not (810.0 <= P <= 830.0):
+            assert abs(res.Loss - 0.7) > 1e-9, f"Lc={res.Loss}: коррекция молча не применена при P={P}"
 
 
 class TestGostPressureRange:

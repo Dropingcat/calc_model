@@ -128,8 +128,8 @@ class BaseDistillationCalculator(ABC):
         # 11. r/R/K по точкам (метод-специфично)
         r_vals, R_vals = self._precision_all(points, t_corr_full, slopes, inp)
 
-        # 12. Флаги: потери > лимита (сценарий В)
-        flags = list(flags_mb)
+        # 12. Флаги: предупреждения коррекции потерь (TD-D86-001) + потери > лимита (сценарий В)
+        flags = list(flags_mb) + list(getattr(inp, "_d86_loss_flags", []) or [])
         self._check_loss_limit(loss_corr, inp, flags)
 
         # 13. Метод-специфичные расширения (AET, cracking, overlap...)
