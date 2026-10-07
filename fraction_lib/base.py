@@ -130,10 +130,15 @@ class BaseDistillationCalculator(ABC):
         slopes = self._compute_slopes(points, t_corr_full)
 
         # 11. r/R/K по точкам (метод-специфично)
+        # TD-2177-003: номограмма может выставить флаг NOMOGRAM_CLAMPED_HIGH
+        self._nomogram_flags: list[str] = []
         r_vals, R_vals = self._precision_all(points, t_corr_full, slopes, inp)
 
         # 12. Флаги: предупреждения коррекции потерь (TD-D86-001) + потери > лимита (сценарий В)
         flags = list(flags_mb) + list(getattr(inp, "_d86_loss_flags", []) or [])
+        for f in getattr(self, "_nomogram_flags", []) or []:
+            if f not in flags:
+                flags.append(f)
         if getattr(self, "_extrapolated_points", None):
             flags.append("EXTRAPOLATED_96_98")  # TD-2177-004: легализованная экстраполяция
         self._check_loss_limit(loss_corr, inp, flags)

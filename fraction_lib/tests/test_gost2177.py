@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from fraction_lib.constants import GOST2177_TABLE4, interpolate_table
+from fraction_lib.constants import GOST2177_TABLE4, GOST2177_NOMOGRAM, interpolate_table
 from fraction_lib.exceptions import (
     PressureOutOfRangeError,
     MassBalanceViolation,
@@ -321,3 +321,65 @@ class TestExtrapolationBanTD2177004:
         )
         res = calc.calculate(inp)
         assert res.Flags == []
+
+
+class TestNomogramValidationTD2177003:
+    """TD-2177-003: независимая валидация оцифрованной номограммы (рис. 6)."""
+
+    def test_kt1_node_self_consistency(self):
+        # KT-1: интерполяция в узлах сетки даёт точно табличные значения
+        from fraction_lib.gost2177 import _nomogram_values
+        for k, v in GOST2177_NOMOGRAM.items():
+            got = _nomogram_values(k)
+            assert all(abs(g - e) < 1e-12 for g, e in zip(got, v)), (k, got, v)
+
+    def test_kt2_midpoint_linearity(self):
+        # KT-2: между соседними узлами — строго линейно
+        from fraction_lib.gost2177 import _nomogram_values
+        ks = sorted(GOST2177_NOMOGRAM.keys())
+        for k0, k1 in zip(ks[:-1], ks[1:]):
+            m = (k0 + k1) / 2
+            expect = tuple((a + b) / 2 for a, b in
+                           zip(GOST2177_NOMOGRAM[k0], GOST2177_NOMOGRAM[k1]))
+            got = _nomogram_values(m)
+            assert all(abs(g - e) < 1e-9 for g, e in zip(got, expect)), (m, got, expect)
+
+    def test_kt3_monotonicity_all_series(self):
+        # KT-3: все шесть серий r/R невозрастают с ростом крутизны.
+        # НАЙДЕННЫЙ ДЕФЕКТ ОЦИФРОВКИ (TD-2177-003, 2026-10-08): серии r_з и R_з
+        # имеют нефизичный скачок вверх S=1.3→1.4 (r_з 2.3→2.7, R_з 5.1→6.0),
+        # тогда как остальные четыре серии монотонны. До сверки с бумажной
+        # номограммой рис. 6 тест фиксирует дефект списком известных нарушений
+        # (whitelist) — если оцифровка правится и дефект исчезает, whitelist
+        # надо обнулить; если появятся НОВЫЕ нарушения — тест красный.
+        ks = sorted(GOST2177_NOMOGRAM.keys())
+        series_names = ["r_нк", "r_кон", "r_з", "R_нк", "R_кон", "R_з"]
+        known_defects = {("r_з", 1.3, 1.4), ("R_з", 1.3, 1.4)}
+        violations = set()
+        for s_idx, name in enumerate(series_names):
+            vals = [GOST2177_NOMOGRAM[k][s_idx] for k in ks]
+            for i in range(len(vals) - 1):
+                if vals[i + 1] > vals[i] + 1e-12:
+                    violations.add((name, ks[i], ks[i + 1]))
+        new = violations - known_defects
+        assert not new, f"новые нарушения монотонности (дефект оцифровки?): {sorted(new)}"
+
+    def test_kt4_range_coverage(self):
+        # KT-4: сетка покрывает [0.0, 5.0] с шагом 0.1 (51 узел)
+        ks = sorted(GOST2177_NOMOGRAM.keys())
+        assert len(ks) == 51 and abs(ks[0]) < 1e-12 and abs(ks[-1] - 5.0) < 1e-12
+        assert all(abs((b - a) - 0.1) < 1e-9 for a, b in zip(ks[:-1], ks[1:]))
+
+    def test_clamp_high_sets_flag_not_silent(self):
+        # выход за S>5.0: значение = крайнее, но НЕ молча — флаг NOMOGRAM_CLAMPED_HIGH
+        from fraction_lib.gost2177 import _nomogram_values
+        fl: list[str] = []
+        got = _nomogram_values(6.2, fl)
+        assert got == GOST2177_NOMOGRAM[5.0]
+        assert "NOMOGRAM_CLAMPED_HIGH" in fl
+
+    def test_in_range_no_flag(self):
+        from fraction_lib.gost2177 import _nomogram_values
+        fl: list[str] = []
+        _nomogram_values(2.35, fl)
+        assert fl == []

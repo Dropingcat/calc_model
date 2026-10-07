@@ -35,22 +35,30 @@ from .exceptions import (
 from .models import FractionInput, FractionResult
 
 
-def _nomogram_values(slope: float):
+def _nomogram_values(slope: float, flags: list | None = None):
     """Значения (r_нк, r_кон, r_з, R_нк, R_кон, R_з) из оцифрованной номограммы.
 
     Интерполяция линейная между соседними значениями крутизны (шаг 0,1).
+    Ключи словаря — возрастающая крутизна; r/R невозрастают с ростом S.
+
+    TD-2177-003: выход за диапазон сетки (S > 5.0) раньше молча возвращал
+    крайнее значение (занижение r/R). Теперь это фиксируется флагом
+    NOMOGRAM_CLAMPED_HIGH через out-param ``flags`` (если передан).
     """
-    keys = sorted(GOST2177_NOMOGRAM.keys())
-    if slope >= keys[0]:
-        return GOST2177_NOMOGRAM[keys[0]]
-    if slope <= keys[-1]:
+    keys = sorted(GOST2177_NOMOGRAM.keys())  # [0.0 ... 5.0], возрастание
+    if slope > keys[-1]:
+        if flags is not None and "NOMOGRAM_CLAMPED_HIGH" not in flags:
+            flags.append("NOMOGRAM_CLAMPED_HIGH")
         return GOST2177_NOMOGRAM[keys[-1]]
+    if slope < keys[0]:
+        # физически S>=0; защита от мусора на входе
+        return GOST2177_NOMOGRAM[keys[0]]
     for i in range(len(keys) - 1):
         k0, k1 = keys[i], keys[i + 1]
-        if k1 <= slope <= k0:
+        if k0 <= slope <= k1:
             v0 = GOST2177_NOMOGRAM[k0]
             v1 = GOST2177_NOMOGRAM[k1]
-            t = (k0 - slope) / (k0 - k1) if k0 != k1 else 0.0
+            t = (slope - k0) / (k1 - k0) if k1 != k0 else 0.0
             return tuple(a + t * (b - a) for a, b in zip(v0, v1))
     return GOST2177_NOMOGRAM[keys[-1]]
 
@@ -210,14 +218,14 @@ class GOST2177Calculator(BaseDistillationCalculator):
             if isinstance(p, str) or p in (IBP_KEY, FBP_KEY):
                 continue
             slope_pt = slopes.get(float(p), slope_ibp)
-            r_nk, r_kon, r_z, R_nk, R_kon, R_z = _nomogram_values(slope_pt)
+            r_nk, r_kon, r_z, R_nk, R_kon, R_z = _nomogram_values(slope_pt, self._nomogram_flags)
             r_vals[p] = r_z
             R_vals[p] = R_z
         # IBP/FBP
-        r_nk, r_kon, r_z, R_nk, R_kon, R_z = _nomogram_values(slope_ibp)
+        r_nk, r_kon, r_z, R_nk, R_kon, R_z = _nomogram_values(slope_ibp, self._nomogram_flags)
         r_vals[IBP_KEY] = r_nk
         R_vals[IBP_KEY] = R_nk
-        r_nk, r_kon, r_z, R_nk, R_kon, R_z = _nomogram_values(slope_fbp)
+        r_nk, r_kon, r_z, R_nk, R_kon, R_z = _nomogram_values(slope_fbp, self._nomogram_flags)
         r_vals[FBP_KEY] = r_kon
         R_vals[FBP_KEY] = R_kon
 
