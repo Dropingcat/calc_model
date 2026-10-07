@@ -19,18 +19,21 @@ import urllib.request
 
 OWNER = "Dropingcat"
 REPO = "calc_model"
+# Актуальный список отслеживаемых файлов (обновлён 08.10.2026: добавлен cal_v4.py,
+# сгенерированные *.xlsx исключены из версионирования через .gitignore — TD-05).
 EXPECTED = [
     "README.md",
     "cal_v2.py",
     "cal_v3.py",
-    "Metrology_Core_EURACHEM_v2.xlsx",
-    "Metrology_Core_EURACHEM_v3.xlsx",
+    "cal_v4.py",
     "memory.md",
     "tracker.md",
     "techdebt.md",
+    "verify_repo.py",
     ".gitignore",
 ]
 FORBIDDEN = [".env"]  # секреты в репо быть не должно
+GENERATED = ["*.xlsx"]  # артефакты генераторов — не сверяются с remote
 
 
 def get_token() -> str:
