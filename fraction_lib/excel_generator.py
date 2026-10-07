@@ -233,6 +233,140 @@ def write_gum_sheet(wb_out, data: dict, res) -> None:
     put("из листа «Контракт_v313». При valid_for_reporting=FALSE точка вне канона НД.")
 
 
+TABLE5_SHEET = "Условия_Table5"  # TD-D86-002 book-слой (только ASTM D86)
+
+
+def build_gum_d86_rows(data: dict, res) -> list[dict]:
+    """Сквозной прогон GUM-модели D86 (uncertainty.evaluate_gum_d86) по точкам книги."""
+    rows = []
+    p_mm = float(data["P_atm"])
+    t_bar = float(data.get("t_bar") or 20.0)
+    flask = float(data.get("vol_sample") or 100.0)
+    for pct in sorted(data["t_obs"]):
+        slope = res.Metrics.slope.get(str(pct)) or res.Metrics.slope.get(f"{pct:g}") or 0.0
+        gum = U.evaluate_gum_d86(p_mm, t_bar, slope, flask_volume_ml=flask,
+                                 flags=list(res.Flags))
+        d = gum.as_dict()
+        rows.append({
+            "V_pct": pct,
+            "T_corr": res.T_corr.get(str(pct)) or res.T_corr.get(f"{pct:g}"),
+            "slope": round(slope, 3),
+            "uc_C": d["uc_C"], "k": d["k"], "U_C": d["U_C"],
+            "nu_eff": d["nu_eff"], "t95": d["t95"],
+            "valid_for_reporting": d["valid_for_reporting"],
+            "components": d["components"],
+            "notes": "; ".join(d["notes"]) if d["notes"] else "",
+        })
+    return rows
+
+
+def write_gum_d86_sheet(wb_out, data: dict, res) -> None:
+    """Лист «GUM_u(T)» для ASTM D86 — TD-D86-006 book-слой."""
+    ws = wb_out.create_sheet(GUM_SHEET)
+    r = 1
+
+    def put(*vals):
+        nonlocal r
+        for c, v in enumerate(vals, start=1):
+            ws.cell(row=r, column=c, value=v)
+        r += 1
+
+    p_mm = float(data["P_atm"])
+    t_bar = float(data.get("t_bar") or 20.0)
+    flask = float(data.get("vol_sample") or 100.0)
+    ref_slope = res.Metrics.slope.get("50") or res.Metrics.slope.get(50.0) or 0.0
+    gum_ref = U.evaluate_gum_d86(p_mm, t_bar, ref_slope, flask_volume_ml=flask,
+                                 flags=list(res.Flags))
+
+    put("GUM-МОДЕЛЬ НЕОПРЕДЕЛЁННОСТИ T_c(V) — fraction_lib.uncertainty.evaluate_gum_d86 (TD-D86-006)")
+    put("Модель:", "T_c = T_obs + 0.00012*(760-P_mm)*(273+t_bar) + ΔT_loss; отчёт округлён до 0.5 °C")
+    put("Источник чисел:", "python -m fraction_lib.excel_generator (лист генерируется, не редактировать вручную)")
+    put("Условия прогона:", f"P = {p_mm} мм рт.ст.;", f"t_bar = {t_bar} °C (при отсутствии ввода принят 20 °C);",
+        f"объём пробы = {flask} мл;", f"флаги политики: {', '.join(res.Flags) if res.Flags else '(нет)'}")
+    put("")
+    put("== 1. Компоненты бюджета (пример: точка 50 %, slope как чувствительность объёма) ==")
+    put("Код", "Описание", "Тип", "Распределение", "Полуширина", "Ед.", "Чувствительность c_i", "u_i, °C")
+    for c in gum_ref.components:
+        put(c.name, c.description, c.kind, c.distribution,
+            round(c.halfwidth, 4), c.units_in, round(c.sensitivity, 6), round(c.u, 4))
+    put("")
+    put("u_c (комбинированная), °C:", round(gum_ref.uc, 4))
+    put("k использованный:", round(gum_ref.k, 3),
+        "| ν_eff:", (round(gum_ref.dof_eff, 1) if gum_ref.dof_eff != float("inf") else "∞"),
+        "| t95(ν_eff):", round(gum_ref.t95, 3))
+    put("U = k·u_c, °C:", round(gum_ref.U, 4))
+    put("valid_for_reporting:", gum_ref.valid_for_reporting)
+    for note in gum_ref.notes:
+        put("Замечание:", note)
+    put("")
+    put("== 2. Сквозной профиль U по точкам книги ==")
+    put("% отгона", "T_corr_ref, °C", "slope, °C/%", "u_c, °C", "k", "U, °C", "ν_eff", "t95",
+        "valid_for_reporting", "Компоненты u_i (°C)", "Замечания")
+    for row in build_gum_d86_rows(data, res):
+        comps = ", ".join(f"{k}={v}" for k, v in row["components"].items())
+        nu = row["nu_eff"] if row["nu_eff"] != float("inf") else "∞"
+        put(row["V_pct"], row["T_corr"], row["slope"], row["uc_C"], row["k"], row["U_C"],
+            nu, row["t95"], row["valid_for_reporting"], comps, row["notes"])
+    put("")
+    put("Как использовать: U из этого листа — расширенная неопределённость скорректированной")
+    put("температуры отгона D86; применять вместе с флагами листа «Контракт_v313» и вердиктом")
+    put("листа «Условия_Table5». valid_for_reporting=FALSE = точка получена вне канона НД.")
+
+
+def write_table5_sheet(wb_out, data: dict, res) -> None:
+    """Лист «Условия_Table5»: контроль условий испытания ASTM D86 Table 5 (TD-D86-002)."""
+    from .d86_procedure import check_conditions, table5_reference_rows, D86TestConditions
+
+    ws = wb_out.create_sheet(TABLE5_SHEET)
+    r = 1
+
+    def put(*vals):
+        nonlocal r
+        for c, v in enumerate(vals, start=1):
+            ws.cell(row=r, column=c, value=v)
+        r += 1
+
+    put("КОНТРОЛЬ УСЛОВИЙ ИСПЫТАНИЯ ASTM D86-23 TABLE 5 — fraction_lib.d86_procedure (TD-D86-002)")
+    put("Источник чисел:", "python -m fraction_lib.excel_generator (лист генерируется, не редактировать вручную)")
+    put("ОГОВОРКА: справочник ниже — типовая сводка Table 5; до ввода в эксплуатацию сверить")
+    put("с лицензионной копией ASTM D86-23 (реестр НД, лист «Реестр_НД»).")
+    put("")
+    put("== 1. Справочник Table 5 (по группам продукта) ==")
+    put("Группа", "Продукты", "Объём пробы, мл", "Конденсация, мл/мин", "IBP→5%, мин", "Нагрев до IBP, мин")
+    for row in table5_reference_rows():
+        put(*row)
+    put("")
+
+    group_raw = data.get("group")
+    try:
+        group = int(float(str(group_raw)))
+    except (TypeError, ValueError):
+        group = None
+    cond = D86TestConditions(
+        group=group,
+        sample_volume_ml=float(data["vol_sample"]) if data.get("vol_sample") is not None else None,
+        # остальное — из журнала наблюдения; книга пока не содержит этих полей
+        condense_rate_ml_min=None, time_to_ibp_min=None, ibp_to_5_min=None,
+        bath_preheat_ok=None, apparatus_group_ok=(True if group in (1, 2, 3, 4) else None),
+    )
+    verdict = check_conditions(cond)
+
+    put("== 2. Вердикт по эталонным данным листа «Ввод» ==")
+    put("Группа из «Ввод»:", group_raw, "| Объём пробы, мл:", data.get("vol_sample"))
+    put("Вердикт:", verdict["verdict"])
+    put("Флаги policy:", ", ".join(verdict["flags"]) if verdict["flags"] else "(нет)")
+    put("")
+    put("ID", "Severity", "Требование", "Факт")
+    for v in verdict["violations"]:
+        put(v["id"], v["severity"], v["requirement"], v["actual"])
+    put("")
+    put("Правила: MISSING/INVALID => FAIL (расчёт не пригоден к отчёту без повторного")
+    put("определения или обоснования метролога); WARNING => CONDITIONAL.")
+    put("Поля CONDENSE_RATE / IBP_TO_5 / TIME_TO_IBP / BATH_PREHEAT заполняются оператором")
+    put("из журнала испытания; при regeneration они подхватятся из листа «Ввод», когда")
+    put("колонки будут добавлены (остаток долга — процедуры TD-D86-003/004).")
+
+
 def write_nd_sheet(wb_out, book_id: str) -> None:
     """Лист «Реестр_НД»: контролируемый реестр редакций НД (ND_REGISTRY.json)."""
     ws = wb_out.create_sheet(ND_SHEET)
@@ -343,14 +477,16 @@ def generate(book: dict, dry_run: bool = False) -> dict:
         out = Path(book["out"])
         out.parent.mkdir(parents=True, exist_ok=True)
         wb_out = openpyxl.load_workbook(src)
-        for sheet in (CONTRACT_SHEET, GUM_SHEET, ND_SHEET):
+        for sheet in (CONTRACT_SHEET, GUM_SHEET, ND_SHEET, TABLE5_SHEET):
             if sheet in wb_out.sheetnames:
                 del wb_out[sheet]
         write_contract_sheet(wb_out, book, data, res)
-        # GUM-модель задекларирована только для ГОСТ 2177 (TD-2177-007);
-        # для ASTM D86 — открытый долг TD-D86-006.
+        # GUM-листы: ГОСТ — TD-2177-007, ASTM D86 — TD-D86-006 (модель evaluate_gum_d86)
         if book["id"] == "G2177":
             write_gum_sheet(wb_out, data, res)
+        elif book["id"] == "D86":
+            write_gum_d86_sheet(wb_out, data, res)
+            write_table5_sheet(wb_out, data, res)
         write_nd_sheet(wb_out, book["id"])
         wb_out.save(out)
         try:

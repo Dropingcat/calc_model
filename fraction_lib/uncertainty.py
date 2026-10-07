@@ -222,3 +222,123 @@ def evaluate_gum(
 
     return GUMResult(components=comps, uc=uc, k=k_used, U=k_used * uc,
                      dof_eff=nu_eff, t95=t95, valid_for_reporting=valid, notes=notes)
+
+
+# ===========================================================================
+# TD-D86-006: GUM-модель неопределённости ASTM D86 (T_c(V), °C)
+# ===========================================================================
+"""Модель величины Y = T_c(V) — скорректированная наблюдаемая температура
+отгона по ASTM D86-23 (Section 11):
+
+    T_c = T_obs + C_p + ΔT_loss   (с округлением отчёта до 0.5 °C)
+
+где C_p = 0.00012·(760 − P_mm)·(273 + t_bar) — поправка Янга на давление;
+ΔT_loss — температурная поправка на потери/остаток, входящая через сдвиг
+процента отгона и локальный наклон кривой slope (°C на %).
+
+Бюджет (полуширины — константы D86_U_* в constants.py, прямоугольные,
+кроме типа A при s_rep):
+
+    u1 наблюдение T_obs            c=1
+    u2 барометрическое давление P   c = -k_C·(273 + t_bar)   [°C/мм рт.ст.]
+    u3 температура барометра t_bar  c =  k_C·(760 − P_mm)
+    u4 мениск / выступающий столбик c=1 (экспертно)
+    u5 отсчёт объёма V (мл)         c = slope·(100/V_flask)  → °C/% × %/мл
+    u6 коррекция потерь ΔT_loss     c=1 (экспертно)
+    u7 округление отчёта 0.5 °C     c=1 (halfwidth 0.25)
+
+Флаги политики D86 (LOSS_CORR_UNSTABLE, TABLE5_INVALID:*, INVALID_TEST)
+помечают результат как вне канона: valid_for_reporting=False.
+"""
+
+from .constants import (
+    D86_YOUNG_K_MMHG, D86_U_OBS_HALFWIDTH, D86_U_BAROMETER_HALFWIDTH_MM,
+    D86_U_TBAR_HALFWIDTH, D86_U_MENISCUS_HALFWIDTH, D86_U_VOLUME_HALFWIDTH,
+    D86_U_LOSSCORR_HALFWIDTH, D86_U_ROUND_HALFWIDTH, LOSS_CORR_MMHG_STD,
+)
+
+D86_OUT_OF_CANON_FLAGS = ("LOSS_CORR_UNSTABLE", "TABLE5_INVALID", "INVALID_TEST")
+
+
+def evaluate_gum_d86(
+    p_mmHg: float,
+    t_bar_C: float,
+    slope_degC_per_pct: float,
+    *,
+    flask_volume_ml: float = 100.0,
+    u_obs_halfwidth: float | None = None,
+    n_repeats: int = 1,
+    s_rep: float | None = None,
+    flags: list[str] | None = None,
+    k: float = K_DEFAULT,
+) -> GUMResult:
+    """Собрать бюджет GUM для одной точки T_c(V) ASTM D86.
+
+    Args:
+        p_mmHg: местное атмосферное давление, мм рт.ст.
+        t_bar_C: температура барометра, °C.
+        slope_degC_per_pct: локальный наклон кривой в точке (°C/%) —
+            переводит ошибку отсчёта объёма в ошибку температуры.
+        flask_volume_ml: залитый объём пробы (для пересчёта мл→%).
+        s_rep/n_repeats: тип A по повторяемости (как в ГОСТ-модели).
+        flags: флаги результата fraction_lib D86Calculator / d86_procedure.
+    """
+    flags = flags or []
+    notes: list[str] = []
+
+    c_p = -D86_YOUNG_K_MMHG * (273.0 + t_bar_C)          # °C / мм рт.ст.
+    c_t = D86_YOUNG_K_MMHG * (LOSS_CORR_MMHG_STD - p_mmHg)  # °C / °C
+    # мл → % отгона: u(V)=0.5 мл ≈ 0.5·(100/flask)% ; T(%) наклон slope ⇒
+    # c_V = slope · (100/flask) [°C/мл]
+    c_v = abs(slope_degC_per_pct) * (100.0 / flask_volume_ml)
+
+    if s_rep is not None and n_repeats >= 2:
+        u1 = UncertaintyComponent("u1", "Наблюдение T_obs (тип A: s_rep/√n)",
+                                  "A", "normal", s_rep / math.sqrt(n_repeats), 1.0, "°C")
+        nu1 = n_repeats - 1
+    else:
+        hw = u_obs_halfwidth if u_obs_halfwidth is not None else D86_U_OBS_HALFWIDTH
+        u1 = UncertaintyComponent("u1", "Наблюдение T_obs (цена деления, прямоугольный)",
+                                  "B", "rectangular", hw, 1.0, "°C")
+        nu1 = 0.0
+
+    comps = [
+        u1,
+        UncertaintyComponent("u2", "Барометрическое давление P (Янг)", "B",
+                             "rectangular", D86_U_BAROMETER_HALFWIDTH_MM, c_p, "мм рт.ст."),
+        UncertaintyComponent("u3", "Температура барометра t_bar", "B",
+                             "rectangular", D86_U_TBAR_HALFWIDTH, c_t, "°C"),
+        UncertaintyComponent("u4", "Мениск / выступающий столбик термометра", "B",
+                             "rectangular", D86_U_MENISCUS_HALFWIDTH, 1.0, "°C"),
+        UncertaintyComponent("u5", "Отсчёт объёма V (через локальный slope)", "B",
+                             "rectangular", D86_U_VOLUME_HALFWIDTH, c_v, "мл"),
+        UncertaintyComponent("u6", "Коррекция потерь/остатка ΔT_loss", "B",
+                             "rectangular", D86_U_LOSSCORR_HALFWIDTH, 1.0, "°C"),
+        UncertaintyComponent("u7", "Округление отчёта до 0.5 °C", "B",
+                             "rectangular", D86_U_ROUND_HALFWIDTH, 1.0, "°C"),
+    ]
+
+    uc2 = sum(c.u ** 2 for c in comps)
+    uc = math.sqrt(uc2)
+
+    if nu1 > 0:
+        ua = u1.u ** 2
+        den = (ua / nu1) if ua < uc2 else uc2 / math.inf
+        nu_eff = uc2 ** 2 / den if den else math.inf
+    else:
+        nu_eff = math.inf
+
+    t95 = _student_t95(nu_eff) if math.isfinite(nu_eff) else 1.96
+    k_used = max(k, t95) if math.isfinite(t95) else k
+    if k_used > k:
+        notes.append(f"k повышен с {k} до {k_used:.2f} по ν_eff={nu_eff:.0f} "
+                     "(Уэлч–Саттертуэйт).")
+
+    bad = [f for f in flags if any(f.startswith(pfx) for pfx in D86_OUT_OF_CANON_FLAGS)]
+    valid = not bad
+    if not valid:
+        notes.append("Результат получен при флагах вне канона НД "
+                     f"({', '.join(bad)}); не пригоден к отчёту без обоснования.")
+
+    return GUMResult(components=comps, uc=uc, k=k_used, U=k_used * uc,
+                     dof_eff=nu_eff, t95=t95, valid_for_reporting=valid, notes=notes)

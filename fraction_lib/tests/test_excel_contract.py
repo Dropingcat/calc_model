@@ -142,17 +142,15 @@ class TestGeneratorProduct:
 # --- Book-слой TD-2177-007 (GUM_u(T)) и TD-2177-008/TD-D86-007 (Реестр_НД) ----
 
 class TestGumBookLayer:
-    def test_gum_sheet_only_for_gost(self, tmp_path):
-        """Лист GUM_u(T) создаётся только для ГОСТ 2177; ASTM — долг TD-D86-006."""
+    def test_gum_sheet_for_both_books(self, tmp_path):
+        """Лист GUM_u(T) создаётся для обеих книг: ГОСТ — TD-2177-007,
+        ASTM D86 — TD-D86-006 (модель evaluate_gum_d86)."""
         for book in BOOKS:
             b = dict(book)
             b["out"] = tmp_path / f"{b['id']}_gum.xlsx"
             generate(b, dry_run=False)
             wb = openpyxl.load_workbook(b["out"])
-            if b["id"] == "G2177":
-                assert GUM_SHEET in wb.sheetnames
-            else:
-                assert GUM_SHEET not in wb.sheetnames
+            assert GUM_SHEET in wb.sheetnames
 
     def test_gum_rows_match_evaluate_gum(self, book_ctx):
         """Golden: build_gum_rows == прямой прогон uncertainty.evaluate_gum (1e-9)."""
