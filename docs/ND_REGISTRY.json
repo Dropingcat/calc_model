@@ -1,0 +1,75 @@
+{
+  "$schema_note": "Контролируемый реестр редакций НД (TD-2177-008 / TD-D86-007). Записи неизменяемы: новая редакция = новый id + supersedes. sha256_of_normative_core пересчитывается fraction_lib.nd_registry.check_no_drift(); drift блокирует CI.",
+  "registry_version": "1.0",
+  "last_updated": "2026-10-08",
+  "entries": [
+    {
+      "id": "ND-2026-001",
+      "designation": "ГОСТ 2177-99",
+      "edition": "Изм. №1 (введён 01.07.2021, приказ 896-ст) + Поправка 2023",
+      "status": "ACTIVE",
+      "effective_from": "2021-07-01",
+      "scope": "fraction_lib.gost2177, fraction_lib.uncertainty, fraction_lib.procedure; книги ГОСТ_2177_метод_А v3.12/v3.13",
+      "core_constants": {
+        "coeff_dT_kPa_form": 0.0009,
+        "p_std_kPa": 101.3,
+        "round_step_C": 0.5,
+        "table4_range_mmHg": [560, 760],
+        "extrapolation_max_pct": 98.0,
+        "slope_central_points_pct": 5,
+        "repeatability_and_reproducibility_tables": true
+      },
+      "sha256_of_normative_core": "5b143c2b4b5090e6c3dc5141fd350c40fc6270a7e1cc1655f1bce146894effe9",
+      "verified_by": [
+        "fraction_lib/tests/test_gost2177.py",
+        "fraction_lib/tests/test_uncertainty_td2177007.py",
+        "fraction_lib/tests/test_procedure_td2177006.py",
+        "docs/TECHDEBT_TD2177_002.md",
+        "docs/TECHDEBT_TD2177_004.md",
+        "docs/TECHDEBT_TD2177_005.md",
+        "docs/TECHDEBT_TD2177_007.md"
+      ],
+      "supersedes": null,
+      "notes": "kPa-форма 0.0009*(101.3-p)*(273+t) эквивалентна нормативной 0.0000009*(101300-Pb)*(273+t) — осознанно не менялась (аудит G2177-N03)."
+    },
+    {
+      "id": "ND-2026-002",
+      "designation": "ASTM D86",
+      "edition": "D86-23 (+ae1)",
+      "status": "ACTIVE",
+      "effective_from": "2023-06-01",
+      "scope": "fraction_lib.d86; книги ASTM_D86_ручной_метод v3.12/v3.13; автоматический метод v3.11 (частично)",
+      "core_constants": {
+        "loss_correction_formula": "Lc=0.5+(L-0.5)/(1+(760-P)/60)",
+        "loss_correction_min_L": 0.5,
+        "pressure_unit_mmHg": 760.0,
+        "groups": [1, 2, 3, 4],
+        "manual_round_step": 0.5,
+        "condensation_rate_mL_min": [4.0, 5.0],
+        "singular_pressure_mmHg": 820.0,
+        "editions_note": "D86-23 (актуальная; ранее D86-20a)"
+      },
+      "sha256_of_normative_core": "9d600b919fec365ed73df472b37227bc42f2f66035592abc312d45920028a67d",
+      "verified_by": [
+        "fraction_lib/tests/test_d86.py",
+        "fraction_lib/tests/test_excel_contract.py",
+        "docs (лист Аудит_НД книги v3.12)"
+      ],
+      "supersedes": null,
+      "notes": "Единая формула Lc для P>760 внедрена в v3.12 и fraction_lib (TD-D86-001 часть book закрыта коммитом 1322c85). Сингулярность P≈820 мм рт. ст. — warning-слой."
+    },
+    {
+      "id": "ND-LEGACY-001",
+      "designation": "ASTM D86",
+      "edition": "D86-20a",
+      "status": "SUPERSEDED",
+      "effective_from": "2020-01-01",
+      "scope": "исторические книги v3.11 и раннее",
+      "core_constants": {},
+      "sha256_of_normative_core": "",
+      "verified_by": [],
+      "supersedes": null,
+      "notes": "Заменена на ND-2026-002 (D86-23). Расчёт по этой редакции запрещён resolve_for_calculation()."
+    }
+  ]
+}

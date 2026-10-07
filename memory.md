@@ -102,3 +102,7 @@ cat /workspace/.env              # значение токена (не пока�
 ## TD-2177-007 закрыт (2026-10-08)
 - Новый слой: `fraction_lib/uncertainty.py` — GUM-бюджет T_corr(V): u1 наблюдение (тип A s_rep/√n или прямоугольный 0.5 °C), u2 p±0.5 кПа, u3 t_bar±0.5, u4 нить±0.2 (выключается), u5 номограмма±0.3 (дефект S=1.3–1.4), u6 MROUND±0.25; U=k·u_c, k↑ по Уэлч–Саттертуэйту. Политика: EXTRAPOLATED_96_98→u1×2; PRESSURE_CLAMPED/NOMOGRAM_CLAMPED_HIGH→valid_for_reporting=False. Документ docs/TECHDEBT_TD2177_007.md, 15 тестов, всего 249 passed.
 - Открытые TD теперь: TD-D86-002…008 (D86-слой), TD-2177-008 (реестр НД с hash), 🔴 отзыв токена, остатки SOP/книга v3.14.
+
+## TD-2177-008 / TD-D86-007 закрыты (2026-10-08)
+- Реестр НД: docs/ND_REGISTRY.json + fraction_lib/nd_registry.py (API: resolve_for_calculation, check_no_drift; CLI-проверка `python -m fraction_lib.nd_registry`). Записи: ND-2026-001 ГОСТ 2177-99 Изм.№1+Поправка 2023; ND-2026-002 ASTM D86-23; ND-LEGACY-001 D86-20a SUPERSEDED. Тесты test_nd_registry.py (11), всего 260 passed. ВАЖНО: GOST2177_EXTRAPOLATION_MAX_PCT в коде = 95.0 (не 98) — реестр отражает фактический код.
+- Открытые TD теперь: TD-D86-002…006, TD-D86-008, остатки SOP, 🔴 отзыв токена.
