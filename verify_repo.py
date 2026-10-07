@@ -20,15 +20,27 @@ import urllib.request
 OWNER = "Dropingcat"
 REPO = "calc_model"
 EXPECTED = [
+    ".gitattributes",
+    ".gitignore",
     "README.md",
+    "cal_app.py",
     "cal_v2.py",
     "cal_v3.py",
-    "Metrology_Core_EURACHEM_v2.xlsx",
-    "Metrology_Core_EURACHEM_v3.xlsx",
+    "cal_v4.py",
+    "calc_engine.py",
+    "e2e_test_v4.py",
+    "gui.py",
+    "lib_validate.py",
+    "mc_v4.py",
     "memory.md",
-    "tracker.md",
+    "report_v4.py",
     "techdebt.md",
-    ".gitignore",
+    "test_gui.py",
+    "test_td07.py",
+    "tracker.md",
+    "validate_auto.py",
+    "validate_v4.py",
+    "verify_repo.py",
 ]
 FORBIDDEN = [".env"]  # секреты в репо быть не должно
 
@@ -70,7 +82,7 @@ def local_blob_sha(path: str) -> str:
 
 
 def main() -> int:
-    branch = sys.argv[1] if len(sys.argv) > 1 else "feature/wls-v3"
+    branch = sys.argv[1] if len(sys.argv) > 1 else "main"
     token = get_token()
     ok = True
 
