@@ -383,3 +383,69 @@ class TestNomogramValidationTD2177003:
         fl: list[str] = []
         _nomogram_values(2.35, fl)
         assert fl == []
+
+
+class TestSeparateConvergenceReproducibilityTD2177005:
+    """TD-2177-005: раздельные решения по сходимости (r) и воспроизводимости (R).
+
+    Сходимость проверяется ВНУТРИ расчёта (|X1-X2| > r -> RepeatabilityViolation,
+    результат серии блокируется). Воспроизводимость — ОТДЕЛЬНОЕ решение над
+    двумя готовыми результатами (compare_results): нарушение R не отменяет
+    результаты, а запрещает их совместное использование (вердикт), либо
+    бросает ReproducibilityViolation при strict_R=True.
+    """
+
+    def _res(self, calc, t50: float):
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={50: t50},
+            loss_pct=0.0,
+            residue_pct=0.0,
+        )
+        return calc.calculate(inp)
+
+    def test_criteria_not_mixed_r_vs_R(self, calc):
+        # из результата расчёта: r(50%)=3.0, R(50%)=6.4 (метод А, S=0)
+        res = self._res(calc, 100.0)
+        r = res.Metrics.r["50"]
+        R = res.Metrics.R["50"]
+        assert r < R  # критерии различны и не взаимозаменяемы
+
+    def test_diff_between_r_and_R_is_repro_exceeded_not_blocked(self, calc):
+        """|X1-X2| > r, но <= R: одиночные результаты валидны, пара — нет."""
+        res1 = self._res(calc, 100.0)   # лаборатория 1
+        res2 = self._res(calc, 107.0)   # лаборатория 2: diff=7 > R=6.4 (и > r=3.0)
+        verdict = calc.compare_results(res1, res2)
+        assert verdict["verdict"] == "REPRODUCIBILITY_EXCEEDED"
+        pts = {v["point"] for v in verdict["violations"]}
+        assert "50" in pts
+
+    def test_compatible_pair(self, calc):
+        res1 = self._res(calc, 100.0)
+        res2 = self._res(calc, 101.0)   # diff=1 <= r -> и <= R
+        verdict = calc.compare_results(res1, res2)
+        assert verdict["verdict"] == "COMPATIBLE"
+        assert verdict["violations"] == []
+
+    def test_strict_R_raises(self, calc):
+        from fraction_lib.exceptions import ReproducibilityViolation
+        res1 = self._res(calc, 100.0)
+        res2 = self._res(calc, 110.0)   # diff=10 > R=4.9
+        with pytest.raises(ReproducibilityViolation) as ei:
+            calc.compare_results(res1, res2, strict_R=True)
+        assert ei.value.details["severity"] == "decision"
+        assert ei.value.code == "REPRODUCIBILITY_VIOLATION"
+
+    def test_repeatability_still_blocks_inside_calculation(self, calc):
+        """Сходимость НЕ переносится на уровень сравнения: внутри серии
+        |X1-X2| > r по-прежнему блокирует расчёт (раздельность решений)."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={50: [100.0, 115.0]},
+            loss_pct=0.0,
+            residue_pct=0.0,
+        )
+        with pytest.raises(RepeatabilityViolation):
+            calc.calculate(inp)

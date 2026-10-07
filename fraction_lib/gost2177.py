@@ -28,6 +28,7 @@ from .constants import (
 )
 from .exceptions import (
     PressureOutOfRangeError,
+    ReproducibilityViolation,
     RepeatabilityViolation,
     MassBalanceViolation,
     InvalidTestError,
@@ -234,6 +235,57 @@ class GOST2177Calculator(BaseDistillationCalculator):
         return r_vals, R_vals
 
     # ------------------------------------------------------------------
+    # TD-2177-005: раздельные критерии сходимости и воспроизводимости
+    # ------------------------------------------------------------------
+    def compare_results(
+        self,
+        res1: "FractionResult",
+        res2: "FractionResult",
+        *,
+        strict_R: bool = False,
+    ) -> dict:
+        """Раздельное решение по сходимости и воспроизводимости (ГОСТ 2177 п.6.4).
+
+        Критерии НЕ смешиваются:
+          - сходимость (r): |X1−X2| ≤ r внутри одной серии — проверяется
+            в самом расчёте (_check_repeatability, RepeatabilityViolation);
+          - воспроизводимость (R): |X̄1−X̄2| ≤ R между двумя результатами
+            (разные лаборатории/исполнители/дни) — здесь.
+
+        Политика по умолчанию (decision layer): нарушение R не отменяет
+        отдельные результаты, а запрещает их совместное использование —
+        возвращается вердикт REPRODUCIBILITY_EXCEEDED со списком точек.
+        При strict_R=True вместо вердикта выбрасывается
+        ReproducibilityViolation (первая нарушенная точка).
+
+        Вход: FractionResult от calculate() (T_corr/Metrics.R по точкам).
+        Возврат: {"verdict": "COMPATIBLE"|"REPRODUCIBILITY_EXCEEDED",
+                  "checked": [...], "violations": [{"point","x1","x2","diff","R"}]}
+        """
+        checked, violations = [], []
+        for key in res1.T_corr:
+            if key not in res2.T_corr:
+                continue
+            x1, x2 = res1.T_corr[key], res2.T_corr[key]
+            R = res1.Metrics.R.get(key) or res2.Metrics.R.get(key) or 0.0
+            if x1 is None or x2 is None or R <= 0:
+                continue
+            diff = abs(x1 - x2)
+            item = {"point": key, "x1": x1, "x2": x2, "diff": round(diff, 3),
+                    "R": R}
+            checked.append(item)
+            if diff > R + 1e-9:
+                violations.append(item)
+        if violations and strict_R:
+            v = violations[0]
+            raise ReproducibilityViolation(point=v["point"], x1=v["x1"],
+                                           x2=v["x2"], R=v["R"])
+        return {
+            "verdict": "REPRODUCIBILITY_EXCEEDED" if violations else "COMPATIBLE",
+            "checked": checked,
+            "violations": violations,
+        }
+
     def _check_repeatability(self, points, t_corr, r_vals) -> None:
         """Проверка повторяемости (сценарий В): |X1 − X2| > r → исключение.
 

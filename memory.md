@@ -15,6 +15,11 @@ _Обновлено: 2026-10-08_
 - Проверка доступа: `git ls-remote origin` работает без интерактивного ввода.
 - Push/pull работают «из коробки»: `git push -u origin main` — без запроса учётных данных.
 
+## Техдолг-сессия 2026-10-08 (кратко)
+- Закрыто в fraction_lib: TD-2177-002 (политика Табл.4), TD-2177-003 (номограмма KT + флаг clamp; найден дефект оцифровки S=1.3→1.4), TD-2177-004 (запрет экстраполяции 5.5.8), TD-2177-005 (раздельные r/R: compare_results + ReproducibilityViolation severity=decision), TD-2177-001/TD-D86-001(book) (excel_generator → книги v3.13 с листом Контракт_v313, new_versions_v4.2/).
+- Политика каждого долга — в docs/TECHDEBT_TD2177_00X.md. Тесты: 227 passed (fraction_lib/tests).
+- Правило: перед коммитом ВСЕГДА проверять staged (`git diff --cached --name-only`) на .env/*.pyc — инцидент №3 уже был.
+
 ## Состояние репозитория (снимок 2026-10-08: ФАЙЛЫ ИЗ РЕПО)
 - HEAD `main` = `db629c9` **«v6.0: GUI с вкладками»** — проект ушёл далеко вперёд относительно локальной копии.
 - Эволюция в истории main: v4 (WLS+LoF+Welch-Satterthwaite) → v5/v5.1/v5.2 (back-calc, LOD/LOQ, бюджет неопределённости, лист «Итог», защита листов) → v5.4 (отчёт Word) → v5.5 (портативный CLI + exe onefile, Git LFS) → v6.0 (GUI tkinter).
