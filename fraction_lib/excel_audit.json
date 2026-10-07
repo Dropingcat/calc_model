@@ -1,0 +1,70 @@
+{
+ "астм д 1160.xlsx": {
+  "sheets": 3,
+  "formula_count": 260,
+  "volatile": {},
+  "dangerous": {},
+  "deep_if": [],
+  "big_ranges": [],
+  "array_formulas": 0,
+  "max_formula_len": 190
+ },
+ "АСТМ Д 86-1-4.xlsx": {
+  "sheets": 4,
+  "formula_count": 871,
+  "volatile": {},
+  "dangerous": {
+   "D47": 2,
+   "D48": 1,
+   "D49": 1,
+   "D50": 1,
+   "D51": 1
+  },
+  "deep_if": [
+   "расчёт!K36:IFx11"
+  ],
+  "big_ranges": [],
+  "array_formulas": 0,
+  "max_formula_len": 214
+ },
+ "ГОСТ ISO 3405 расчет для 1_2_3_4 групп.xlsx": {
+  "sheets": 5,
+  "formula_count": 866,
+  "volatile": {},
+  "dangerous": {
+   "D51": 1,
+   "D47": 2
+  },
+  "deep_if": [
+   "Лист1!J36:IFx11"
+  ],
+  "big_ranges": [],
+  "array_formulas": 0,
+  "max_formula_len": 215
+ },
+ "ГОСТ ИСО 3405 расчет для 1_2_3_4 групп .xlsx": {
+  "sheets": 4,
+  "formula_count": 866,
+  "volatile": {},
+  "dangerous": {
+   "D51": 1,
+   "D47": 2
+  },
+  "deep_if": [
+   "Лист1!J36:IFx11"
+  ],
+  "big_ranges": [],
+  "array_formulas": 0,
+  "max_formula_len": 215
+ },
+ "фракционка ГОСТ_2177.xlsx": {
+  "sheets": 5,
+  "formula_count": 532,
+  "volatile": {},
+  "dangerous": {},
+  "deep_if": [],
+  "big_ranges": [],
+  "array_formulas": 0,
+  "max_formula_len": 782
+ }
+}

@@ -1,0 +1,217 @@
+"""ПУНКТ 2: тесты ГОСТ 2177-99 (gost2177.py).
+
+Критерии готовности (контракт):
+- P=760 → V_K = L;
+- L=2.5, P=740 → V_K = 2.0;
+- P=500 → PressureOutOfRangeError;
+- баланс 98% → MassBalanceViolation;
+- |X1−X2| > r → RepeatabilityViolation (сценарий В);
+- поправка давления Сиднея Янга: C = 0,00012·(760 − P)·(273 + t).
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from fraction_lib.constants import GOST2177_TABLE4, interpolate_table
+from fraction_lib.exceptions import (
+    PressureOutOfRangeError,
+    MassBalanceViolation,
+    RepeatabilityViolation,
+)
+from fraction_lib.gost2177 import GOST2177Calculator
+from fraction_lib.models import FractionInput
+
+
+@pytest.fixture
+def calc():
+    return GOST2177Calculator()
+
+
+class TestLossCorrection:
+    """V_K = A·L + B (таблица 4, линейная интерполяция)."""
+
+    def test_p760_vk_equals_loss(self, calc):
+        """P=760 → V_K = L (A=1.000, B=0.000)."""
+        inp = FractionInput(P_atm=760.0)
+        assert calc._correct_loss(2.5, inp) == pytest.approx(2.5, abs=1e-9)
+
+    def test_p740_loss25_vk20(self, calc):
+        """L=2.5, P=740 → V_K = 0.750·2.5 + 0.125 = 2.0 (пример контракта)."""
+        inp = FractionInput(P_atm=740.0)
+        assert calc._correct_loss(2.5, inp) == pytest.approx(2.0, abs=1e-9)
+
+    def test_p560_vk_table4_first_row(self, calc):
+        """P=560 (граница) → A=0.231, B=0.384: V_K = 0.231·L + 0.384."""
+        inp = FractionInput(P_atm=560.0)
+        assert calc._correct_loss(10.0, inp) == pytest.approx(0.231 * 10.0 + 0.384, abs=1e-9)
+
+    def test_p_interpolation_linear(self, calc):
+        """Линейная интерполяция между 740 и 750: P=745 → среднее A/B."""
+        A740, B740 = 0.750, 0.125
+        A750, B750 = 0.857, 0.071
+        inp = FractionInput(P_atm=745.0)
+        vk = calc._correct_loss(1.0, inp)
+        expected_A = (A740 + A750) / 2.0
+        expected_B = (B740 + B750) / 2.0
+        assert vk == pytest.approx(expected_A * 1.0 + expected_B, abs=1e-9)
+
+    def test_interpolate_table_boundaries(self):
+        """interpolate_table: границы 560 и 760 возвращают крайние строки."""
+        A, B = interpolate_table(560.0, GOST2177_TABLE4)
+        assert A == pytest.approx(0.231)
+        assert B == pytest.approx(0.384)
+        A, B = interpolate_table(760.0, GOST2177_TABLE4)
+        assert A == pytest.approx(1.000)
+        assert B == pytest.approx(0.000)
+
+
+class TestPressureScenario:
+    """Сценарий А: давление вне [560, 760] → PressureOutOfRangeError."""
+
+    def test_p500_out_of_range(self, calc):
+        inp = FractionInput(P_atm=500.0, V_pct=[100.0], T_obs={50: 120.0})
+        with pytest.raises(PressureOutOfRangeError):
+            calc.calculate(inp)
+
+    def test_p800_out_of_range(self, calc):
+        inp = FractionInput(P_atm=800.0, V_pct=[100.0], T_obs={50: 120.0})
+        with pytest.raises(PressureOutOfRangeError):
+            calc.calculate(inp)
+
+    def test_correct_loss_raises_out_of_range(self, calc):
+        inp = FractionInput(P_atm=500.0)
+        with pytest.raises(PressureOutOfRangeError):
+            calc._correct_loss(2.5, inp)
+
+
+class TestMassBalanceScenario:
+    """Сценарий Б: отгон+остаток+потери != 100 ± 0.2 → MassBalanceViolation."""
+
+    def test_balance_98_violation(self, calc):
+        """Баланс 98% → MassBalanceViolation."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[98.0],
+            T_obs={50: 120.0},
+            loss_pct=0.0,
+            residue_pct=0.0,
+        )
+        with pytest.raises(MassBalanceViolation):
+            calc.calculate(inp)
+
+    def test_balance_100_ok(self, calc):
+        """Баланс 100% → расчёт проходит."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={50: 120.0},
+            loss_pct=0.0,
+            residue_pct=0.0,
+        )
+        res = calc.calculate(inp)
+        assert res.Loss == pytest.approx(0.0, abs=1e-9)
+
+    def test_balance_auto_normalize(self, calc):
+        """auto_normalize=True: баланс 98% → нормализация + флаг."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[98.0],
+            T_obs={50: 120.0},
+            loss_pct=0.0,
+            residue_pct=0.0,
+            auto_normalize=True,
+        )
+        res = calc.calculate(inp)
+        assert "MASS_BALANCE_NORMALIZED" in res.Flags
+
+
+class TestRepeatabilityScenario:
+    """Сценарий В: |X1 − X2| > r → RepeatabilityViolation."""
+
+    def test_pairs_above_r(self, calc):
+        """Два определения, |X1−X2| > r → RepeatabilityViolation."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={50: [100.0, 115.0]},  # |15| > r (r≈3 при slope=0)
+            loss_pct=0.0,
+            residue_pct=0.0,
+        )
+        with pytest.raises(RepeatabilityViolation):
+            calc.calculate(inp)
+
+    def test_pairs_within_r_ok(self, calc):
+        """Два определения, |X1−X2| <= r → расчёт проходит."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={50: [100.0, 101.0]},
+            loss_pct=0.0,
+            residue_pct=0.0,
+        )
+        res = calc.calculate(inp)
+        assert res.T_corr["50"] is not None
+
+
+class TestPressureCorrection:
+    """Поправка давления Сиднея Янга (метод А, формула 1)."""
+
+    def test_young_correction_formula(self, calc):
+        """C = 0,00012·(760 − P)·(273 + t). P=740, t=100 → C=0.8952."""
+        inp = FractionInput(P_atm=740.0)
+        # прямой вызов приватного метода — юнит-проверка формулы
+        corr = calc._apply_pressure_correction(100.0, 740.0)
+        expected = 100.0 + 0.00012 * (760.0 - 740.0) * (273.0 + 100.0)
+        assert corr == pytest.approx(expected, abs=1e-9)
+
+    def test_young_at_std_pressure_zero(self, calc):
+        """P=760 → поправка = 0 (T_corr == T_obs)."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={"IBP": 40.0, 50: 120.0, "FBP": 190.0},
+            loss_pct=0.0,
+            residue_pct=0.0,
+        )
+        res = calc.calculate(inp)
+        assert res.T_corr["IBP"] == pytest.approx(40.0, abs=1e-9)
+        assert res.T_corr["50"] == pytest.approx(120.0, abs=1e-9)
+        assert res.T_corr["FBP"] == pytest.approx(190.0, abs=1e-9)
+
+    def test_full_calculation_result_structure(self, calc):
+        """Полный расчёт: структура результата и метод."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[0, 10, 50, 90, 100],
+            T_obs={0: 40.0, 10: 70.0, 50: 120.0, 90: 180.0, "FBP": 200.0},
+            loss_pct=0.0,
+            residue_pct=0.0,
+        )
+        res = calc.calculate(inp)
+        assert res.method == "gost2177"
+        assert "50" in res.T_corr
+        assert "50" in res.Metrics.r
+        assert "50" in res.Metrics.R
+        assert "50" in res.Metrics.K
+        assert res.Metrics.K["50"] > 0
+        assert res.Metrics.R_ok["50"] == pytest.approx(res.Metrics.R["50"] * 0.84, abs=1e-9)
+
+
+class TestMethodB:
+    """Метод Б — фиксированная точность (6.4.1/6.4.2)."""
+
+    def test_method_b_fixed_precision(self, calc):
+        inp = FractionInput(
+            P_atm=760.0,
+            object_type="B",
+            V_pct=[100.0],
+            T_obs={"IBP": 200.0, 10: 260.0, 50: 320.0, 90: 380.0, "FBP": 400.0},
+            loss_pct=0.0,
+            residue_pct=0.0,
+        )
+        res = calc.calculate(inp)
+        assert res.raw["extra"]["method"] == "B"
+        # фиксированные значения: R(50)=3.0, r(50)=2.0
+        assert res.Metrics.r["50"] == pytest.approx(2.0, abs=1e-9)
+        assert res.Metrics.R["50"] == pytest.approx(3.0, abs=1e-9)
