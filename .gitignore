@@ -1,14 +1,8 @@
-# Environment files
-.env
-# Secrets & generated artifacts (не коммитим)
-.env
-*.xlsx
-__pycache__/
-result.json
-Отчёт_по_калибровке.docx
-*.docx
-build/
-*.spec
-dist/
+# Python compiled files
 __pycache__/
 *.pyc
+
+# Environment files
+.env
+# локальные секреты — никогда не коммитить
+.env

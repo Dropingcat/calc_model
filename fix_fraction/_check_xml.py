@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
+# NOTE(Windows): архивная утилита починки Windows-копий книг (ФР-*).
+# Путь по умолчанию переопределяется через FRAC_WIN_DIR.
 """Проверка корректности сохранённых формул openpyxl (кавычки в XML)."""
+import os
 import zipfile
 import re
 import sys
 
 sys.stdout.reconfigure(encoding='utf-8')
-p = r'C:\Users\Arhys\Desktop\каллибровка\фракционный состав\АСТМ Д 86-1-4.xlsx'
+p = os.environ.get('FRAC_WIN_DIR', r'C:\Users\Arhys\Desktop\каллибровка\фракционный состав\АСТМ Д 86-1-4.xlsx')
 z = zipfile.ZipFile(p)
 xml = z.read('xl/worksheets/sheet1.xml').decode('utf-8')
 # найти L36 в XML

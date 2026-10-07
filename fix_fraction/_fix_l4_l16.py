@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+# NOTE(Windows): архивная утилита починки Windows-копий книг (ФР-*).
+# Путь по умолчанию переопределяется через FRAC_WIN_DIR.
 """Точечная доводка ФР-05: L4 (IBP) и L16 (FBP) в D1160 — переключение 1мм/10мм."""
-import openpyxl, os
+import openpyxl
 
-folder = r'C:\Users\Arhys\Desktop\каллибровка\фракционный состав'
+folder = os.environ.get('FRAC_WIN_DIR', r'C:\Users\Arhys\Desktop\каллибровка\фракционный состав')
 p = os.path.join(folder, 'астм д 1160.xlsx')
 wb = openpyxl.load_workbook(p, data_only=False)
 ws = wb['Лист2']

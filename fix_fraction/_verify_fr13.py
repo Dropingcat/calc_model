@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
+# NOTE(Windows): архивная утилита починки Windows-копий книг (ФР-*).
+# Путь по умолчанию переопределяется через FRAC_WIN_DIR.
 """Верификация ФР-13: H28, Табл4."""
+import os
 import openpyxl
 import sys
 
 sys.stdout.reconfigure(encoding='utf-8')
-p = r'C:\Users\Arhys\Desktop\каллибровка\фракционный состав\фракционка ГОСТ_2177.xlsx'
+p = os.environ.get('FRAC_WIN_DIR', r'C:\Users\Arhys\Desktop\каллибровка\фракционный состав\фракционка ГОСТ_2177.xlsx')
 wb = openpyxl.load_workbook(p, data_only=False)
 print('sheets:', wb.sheetnames)
 ws = wb['Лист1']

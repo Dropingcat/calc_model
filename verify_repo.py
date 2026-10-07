@@ -104,20 +104,32 @@ def main() -> int:
     tree = api(f"https://api.github.com/repos/{OWNER}/{REPO}/git/trees/{branches.get(branch, 'main')}?recursive=1", token)
     remote_files = {t["path"]: t["sha"] for t in tree.get("tree", []) if t["type"] == "blob"}
 
-    print("\n[2] Ожидаемые файлы в HEAD ветки:")
-    for f in EXPECTED:
+    # 2a. Явный список (корневые файлы) + 2b. полный обход git-индекса
+    tracked = subprocess.run(["git", "ls-files", "-z"], capture_output=True, text=True).stdout.split("\0")
+    tracked = [t for t in tracked if t and t not in EXPECTED]
+    all_files = EXPECTED + sorted(tracked)
+
+    print(f"\n[2] Файлы git-индекса vs HEAD ветки (всего {len(all_files)}):")
+    mismatches, missing = [], []
+    for f in all_files:
         here_r, here_l = f in remote_files, os.path.exists(f)
-        status = "OK " if (here_r and here_l) else "!! "
-        sizes = ""
         if here_r and here_l:
             lsha = local_blob_sha(f)
-            match = "sha совпадает" if lsha == remote_files[f] else "sha РАЗЛИЧАЕТСЯ (нужен pull/push)"
             if lsha != remote_files[f]:
-                ok = False
-            sizes = f"  [{match}, {os.path.getsize(f)} б]"
-        print(f"    {status}{f:<40} remote:{'есть' if here_r else 'НЕТ'}  local:{'есть' if here_l else 'НЕТ'}{sizes}")
-        if not (here_r and here_l):
-            ok = False
+                mismatches.append(f)
+        elif not here_r:
+            missing.append((f, "нет в remote"))
+        elif not here_l:
+            missing.append((f, "нет локально"))
+    for f in mismatches:
+        print(f"    !! {f}: sha РАЗЛИЧАЕТСЯ (нужен pull/push)")
+    for f, why in missing:
+        print(f"    !! {f}: {why}")
+        ok = False
+    if mismatches:
+        ok = False
+    if not (mismatches or missing):
+        print(f"    OK: все {len(all_files)} файлов присутствуют с обеих сторон, sha1 совпадают")
 
     print("\n[3] Секреты (не должны быть в репо):")
     for f in FORBIDDEN:
