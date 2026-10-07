@@ -43,8 +43,13 @@ from .constants import (
 from .gost2177 import GOST2177Calculator
 from .d86 import D86Calculator
 from .models import FractionInput
+from . import uncertainty as U
+from . import nd_registry as ND
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Соответствие книги -> designation в реестре НД (для листа «Реестр_НД»)
+BOOK_ND_DESIGNATION = {"G2177": "ГОСТ 2177-99", "D86": "ASTM D86"}
 
 # Книги-источники (v3.12) и имена продуктовых книг (v3.13)
 BOOKS = [
@@ -63,6 +68,8 @@ BOOKS = [
 ]
 
 CONTRACT_SHEET = "Контракт_v313"
+GUM_SHEET = "GUM_u(T)"          # TD-2177-007 book-слой (для ГОСТ 2177)
+ND_SHEET = "Реестр_НД"          # TD-2177-008 / TD-D86-007 book-слой (обе книги)
 
 
 def read_book_inputs(ws) -> dict:
@@ -144,6 +151,121 @@ def run_reference(book_id: str, inp: FractionInput):
     return calc.calculate(inp)
 
 
+def mmhg_to_kpa(p_mmHg: float) -> float:
+    return p_mmHg * 101.325 / 760.0
+
+
+def build_gum_rows(data: dict, res) -> list[dict]:
+    """Сквозной прогон GUM-модели (uncertainty.evaluate_gum) по эталонным точкам книги.
+
+    Возвращает строки для листа «GUM_u(T)»: одна строка = одна точка отгона V%.
+    Давление/температура барометра берутся из листа «Ввод»; t_bar при отсутствии
+    ввода — консервативно 20 °C (комментарий в листе обязателен).
+    """
+    p_kPa = round(mmhg_to_kpa(data["P_atm"]), 3)
+    t_bar = float(data.get("t_bar") or 20.0)
+    rows = []
+    for pct in sorted(data["t_obs"]):
+        gum = U.evaluate_gum(p_kPa, t_bar, flags=list(res.Flags))
+        d = gum.as_dict()
+        rows.append({
+            "V_pct": pct,
+            "T_corr": res.T_corr.get(str(pct)) or res.T_corr.get(f"{pct:g}"),
+            "uc_C": d["uc_C"], "k": d["k"], "U_C": d["U_C"],
+            "nu_eff": d["nu_eff"], "t95": d["t95"],
+            "valid_for_reporting": d["valid_for_reporting"],
+            "components": d["components"],
+            "notes": "; ".join(d["notes"]) if d["notes"] else "",
+        })
+    return rows
+
+
+def write_gum_sheet(wb_out, data: dict, res) -> None:
+    """Лист «GUM_u(T)»: бюджет неопределённости по GUM для каждой точки T_corr."""
+    ws = wb_out.create_sheet(GUM_SHEET)
+    r = 1
+
+    def put(*vals):
+        nonlocal r
+        for c, v in enumerate(vals, start=1):
+            ws.cell(row=r, column=c, value=v)
+        r += 1
+
+    p_kPa = round(mmhg_to_kpa(data["P_atm"]), 3)
+    t_bar = float(data.get("t_bar") or 20.0)
+    gum_ref = U.evaluate_gum(p_kPa, t_bar, flags=list(res.Flags))
+
+    put("GUM-МОДЕЛЬ НЕОПРЕДЕЛЁННОСТИ T_corr(V) — fraction_lib.uncertainty (TD-2177-007)")
+    put("Модель:", "T_corr = MROUND(T_obs + 0.0009*(101.3 - p_кПа)*(273 + t_bar) + ΔT_m; 0.5)")
+    put("Источник чисел:", "python -m fraction_lib.excel_generator (этот лист генерируется, не редактировать вручную)")
+    put("Условия прогона:", f"p = {data['P_atm']} мм рт.ст. = {p_kPa} кПа;",
+        f"t_bar = {t_bar} °C (при отсутствии ввода принят 20 °C);",
+        f"флаги политики: {', '.join(res.Flags) if res.Flags else '(нет)'}")
+    put("")
+
+    put("== 1. Компоненты бюджета (u_i, приведённые к °C) ==")
+    put("Код", "Описание", "Тип", "Распределение", "Полуширина", "Ед.", "Чувствительность c_i", "u_i, °C")
+    for c in gum_ref.components:
+        put(c.name, c.description, c.kind, c.distribution,
+            round(c.halfwidth, 4), c.units_in, round(c.sensitivity, 6), round(c.u, 4))
+    put("")
+    put("u_c (комбинированная), °C:", round(gum_ref.uc, 4))
+    put("k использованный:", round(gum_ref.k, 3),
+        "| ν_eff:", (round(gum_ref.dof_eff, 1) if gum_ref.dof_eff != float("inf") else "∞"),
+        "| t95(ν_eff):", round(gum_ref.t95, 3))
+    put("U = k·u_c, °C:", round(gum_ref.U, 4))
+    put("valid_for_reporting:", gum_ref.valid_for_reporting)
+    for note in gum_ref.notes:
+        put("Замечание:", note)
+    put("")
+
+    put("== 2. Сквозной профиль U по точкам книги ==")
+    put("% отгона", "T_corr_ref, °C", "u_c, °C", "k", "U, °C", "ν_eff", "t95",
+        "valid_for_reporting", "Компоненты u_i (°C)", "Замечания")
+    for row in build_gum_rows(data, res):
+        comps = ", ".join(f"{k}={v}" for k, v in row["components"].items())
+        nu = row["nu_eff"] if row["nu_eff"] != float("inf") else "∞"
+        put(row["V_pct"], row["T_corr"], row["uc_C"], row["k"], row["U_C"],
+            nu, row["t95"], row["valid_for_reporting"], comps, row["notes"])
+    put("")
+    put("Как использовать: U из этого листа — расширенная неопределённость (k eff.)")
+    put("скорректированной температуры отгона; применять вместе с флагами политики")
+    put("из листа «Контракт_v313». При valid_for_reporting=FALSE точка вне канона НД.")
+
+
+def write_nd_sheet(wb_out, book_id: str) -> None:
+    """Лист «Реестр_НД»: контролируемый реестр редакций НД (ND_REGISTRY.json)."""
+    ws = wb_out.create_sheet(ND_SHEET)
+    r = 1
+
+    def put(*vals):
+        nonlocal r
+        for c, v in enumerate(vals, start=1):
+            ws.cell(row=r, column=c, value=v)
+        r += 1
+
+    entries = ND.load_registry()
+    designation = BOOK_ND_DESIGNATION.get(book_id)
+    drift = ND.check_no_drift()
+
+    put("РЕЕСТР РЕДАКЦИЙ НД (docs/ND_REGISTRY.json) — TD-2177-008 / TD-D86-007")
+    put("Эта книга верифицирована редакцией:", designation or "(не задано)")
+    put("Статус сверки хешей (drift-guard):",
+        "OK — константы кода соответствуют реестру" if not drift
+        else "DRIFT! " + " | ".join(drift))
+    put("")
+    put("ID", "Обозначение", "Редакция", "Статус", "Действует с", "Заменяет",
+        "sha256 нормативного ядра", "Верифицировано (доказательства)", "Область", "Примечание")
+    for e in entries:
+        put(e.id, e.designation, e.edition, e.status, e.effective_from,
+            e.supersedes or "", e.sha256_of_normative_core,
+            "; ".join(e.verified_by), e.scope, e.notes)
+    put("")
+    put("Правила: запись неизменяема; новая редакция = новая запись + supersedes;")
+    put("расчёт по WITHDRAWN/SUPERSEDED запрещён (resolve_for_calculation);")
+    put("изменение существенных констант без переоформления реестра блокирует CI (pytest).")
+
+
 def write_contract_sheet(wb_out, book: dict, data: dict, res) -> None:
     ws = wb_out.create_sheet(CONTRACT_SHEET)
     r = 1
@@ -221,9 +343,15 @@ def generate(book: dict, dry_run: bool = False) -> dict:
         out = Path(book["out"])
         out.parent.mkdir(parents=True, exist_ok=True)
         wb_out = openpyxl.load_workbook(src)
-        if CONTRACT_SHEET in wb_out.sheetnames:
-            del wb_out[CONTRACT_SHEET]
+        for sheet in (CONTRACT_SHEET, GUM_SHEET, ND_SHEET):
+            if sheet in wb_out.sheetnames:
+                del wb_out[sheet]
         write_contract_sheet(wb_out, book, data, res)
+        # GUM-модель задекларирована только для ГОСТ 2177 (TD-2177-007);
+        # для ASTM D86 — открытый долг TD-D86-006.
+        if book["id"] == "G2177":
+            write_gum_sheet(wb_out, data, res)
+        write_nd_sheet(wb_out, book["id"])
         wb_out.save(out)
         try:
             summary["written"] = str(out.relative_to(REPO_ROOT))

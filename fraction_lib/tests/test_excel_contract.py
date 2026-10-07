@@ -19,12 +19,17 @@ import pytest
 from fraction_lib.excel_generator import (
     BOOKS,
     CONTRACT_SHEET,
+    GUM_SHEET,
+    ND_SHEET,
+    build_gum_rows,
     build_input,
     canonical_slope_formula,
     generate,
+    mmhg_to_kpa,
     read_book_inputs,
     run_reference,
 )
+from fraction_lib.uncertainty import evaluate_gum
 
 
 def mround(x: float, m: float = 0.5) -> float:
@@ -132,3 +137,82 @@ class TestGeneratorProduct:
         ws = wb[CONTRACT_SHEET]
         text = "\n".join(str(c.value) for row in ws.iter_rows(max_row=200) for c in row if c.value)
         assert "КОНТРАКТ" in text and "Эталонный результат" in text
+
+
+# --- Book-слой TD-2177-007 (GUM_u(T)) и TD-2177-008/TD-D86-007 (Реестр_НД) ----
+
+class TestGumBookLayer:
+    def test_gum_sheet_only_for_gost(self, tmp_path):
+        """Лист GUM_u(T) создаётся только для ГОСТ 2177; ASTM — долг TD-D86-006."""
+        for book in BOOKS:
+            b = dict(book)
+            b["out"] = tmp_path / f"{b['id']}_gum.xlsx"
+            generate(b, dry_run=False)
+            wb = openpyxl.load_workbook(b["out"])
+            if b["id"] == "G2177":
+                assert GUM_SHEET in wb.sheetnames
+            else:
+                assert GUM_SHEET not in wb.sheetnames
+
+    def test_gum_rows_match_evaluate_gum(self, book_ctx):
+        """Golden: build_gum_rows == прямой прогон uncertainty.evaluate_gum (1e-9)."""
+        if book_ctx["id"] != "G2177":
+            pytest.skip("GUM-модель задекларирована только для ГОСТ 2177")
+        data, res = book_ctx["data"], book_ctx["res"]
+        rows = build_gum_rows(data, res)
+        p_kPa = round(mmhg_to_kpa(data["P_atm"]), 3)
+        t_bar = float(data.get("t_bar") or 20.0)
+        assert len(rows) == len(data["t_obs"])
+        for row in rows:
+            d = evaluate_gum(p_kPa, t_bar, flags=list(res.Flags)).as_dict()
+            assert row["uc_C"] == d["uc_C"]
+            assert row["U_C"] == d["U_C"]
+            assert row["k"] == d["k"]
+            assert row["valid_for_reporting"] == d["valid_for_reporting"]
+            assert row["components"] == d["components"]
+
+    def test_gum_sheet_content_in_product(self, tmp_path):
+        book = dict(BOOKS[0])  # G2177
+        book["out"] = tmp_path / "gum_prod.xlsx"
+        generate(book, dry_run=False)
+        wb = openpyxl.load_workbook(book["out"])
+        ws = wb[GUM_SHEET]
+        text = "\n".join(str(c.value) for row in ws.iter_rows(max_row=100) for c in row if c.value)
+        assert "GUM-МОДЕЛЬ" in text
+        assert "u_c (комбинированная)" in text
+        assert "Сквозной профиль U" in text
+        assert "u1" in text and "u6" in text  # бюджет компонентов на месте
+
+
+class TestNDRegistryBookLayer:
+    def test_nd_sheet_present_in_both_books(self, tmp_path):
+        for book in BOOKS:
+            b = dict(book)
+            b["out"] = tmp_path / f"{b['id']}_nd.xlsx"
+            generate(b, dry_run=False)
+            wb = openpyxl.load_workbook(b["out"])
+            assert ND_SHEET in wb.sheetnames
+
+    def test_nd_sheet_has_active_entries_and_no_drift(self, tmp_path):
+        book = dict(BOOKS[0])
+        book["out"] = tmp_path / "nd_prod.xlsx"
+        generate(book, dry_run=False)
+        wb = openpyxl.load_workbook(book["out"])
+        ws = wb[ND_SHEET]
+        text = "\n".join(str(c.value) for row in ws.iter_rows(max_row=50) for c in row if c.value)
+        assert "drift-guard" in text and "DRIFT" not in text  # сверка хешей OK
+        assert "ND-2026-001" in text and "ACTIVE" in text
+        assert "sha256" in text.lower() or "SHA256" in text
+
+    def test_registry_designation_per_book(self, tmp_path):
+        from fraction_lib.excel_generator import BOOK_ND_DESIGNATION
+        expected = {"G2177": "ГОСТ 2177-99", "D86": "ASTM D86"}
+        assert BOOK_ND_DESIGNATION == expected
+        for book in BOOKS:
+            b = dict(book)
+            b["out"] = tmp_path / f"{b['id']}_desig.xlsx"
+            generate(b, dry_run=False)
+            wb = openpyxl.load_workbook(b["out"])
+            ws = wb[ND_SHEET]
+            vals = [c.value for row in ws.iter_rows(min_row=2, max_row=2) for c in row if c.value]
+            assert expected[b["id"]] in vals

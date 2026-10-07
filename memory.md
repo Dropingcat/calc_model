@@ -93,6 +93,7 @@ cat /workspace/.env              # значение токена (не пока�
   гоняет данные через GOST2177Calculator/D86Calculator и пишет продукт `new_versions_v4.2/*_v3.13_контракт_с_генератором.xlsx`
   с листом «Контракт_v313» (константы НД, канон S(p) п.5.6.3, эталон T_corr/r/R/slope, флаги политики).
 * Исходные книги v3.12 НЕ модифицируются; запуск: `python -m fraction_lib.excel_generator [--dry-run]`.
+* Book-слой TD-2177-007/008 (2026-10-08): генератор пишет лист «GUM_u(T)» (только ГОСТ — из uncertainty.evaluate_gum, бюджет u1..u6 + профиль U) и «Реестр_НД» (обе книги — из ND_REGISTRY.json, cо статусом check_no_drift). Golden-тесты: TestGumBookLayer/TestNDRegistryBookLayer, 266 passed.
 * Golden-тесты без LibreOffice: `fraction_lib/tests/test_excel_contract.py` (13 шт., всего 222 passed).
   Допуск сверки книги vs библиотеки ±0.5 °C (шаг MROUND книги); факт: max 0.490 (G2177) / 0.489 (D86).
 * Ритуал: после любого изменения формул в fraction_lib или книгах — перегенерировать v3.13 перед релизом.
