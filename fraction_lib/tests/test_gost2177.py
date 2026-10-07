@@ -85,6 +85,49 @@ class TestPressureScenario:
             calc._correct_loss(2.5, inp)
 
 
+class TestTable4PolicyTD2177002:
+    """TD-2177-002: формальная политика A/B для нетабличного давления."""
+
+    FULL_CURVE = {"IBP": 40.0, 10: 60.0, 50: 90.0, 90: 120.0, "FBP": 140.0}
+
+    def _inp(self, p_mmhg):
+        # баланс: отгон 98 + потери 2 + остаток 0 = 100
+        return FractionInput(
+            P_atm=p_mmhg, V_pct=[98.0], T_obs=dict(self.FULL_CURVE),
+            loss_pct=2.0, residue_pct=0.0,
+        )
+
+    def test_default_policy_is_strict(self):
+        c = GOST2177Calculator()
+        assert c.table4_policy == "strict"
+
+    def test_unknown_policy_rejected(self):
+        with pytest.raises(ValueError):
+            GOST2177Calculator(table4_policy="clamp_high")
+
+    def test_strict_p500_still_fails(self):
+        c = GOST2177Calculator(table4_policy="strict")
+        with pytest.raises(PressureOutOfRangeError):
+            c.calculate(self._inp(500.0))
+
+    def test_clamp_low_p500_uses_row_560_with_flag(self):
+        c = GOST2177Calculator(table4_policy="clamp_low")
+        res = c.calculate(self._inp(500.0))
+        assert "PRESSURE_CLAMPED" in res.Flags
+        # Vk = 0.231*L + 0.384 при L=2.0 → 0.846 (res.Loss — скорректированные потери)
+        assert res.Loss == pytest.approx(0.231 * 2.0 + 0.384, abs=1e-9)
+
+    def test_clamp_low_in_range_no_flag(self):
+        c = GOST2177Calculator(table4_policy="clamp_low")
+        res = c.calculate(self._inp(700.0))
+        assert "PRESSURE_CLAMPED" not in res.Flags
+
+    def test_clamp_low_above_760_always_fails(self):
+        c = GOST2177Calculator(table4_policy="clamp_low")
+        with pytest.raises(PressureOutOfRangeError):
+            c.calculate(self._inp(800.0))
+
+
 class TestMassBalanceScenario:
     """Сценарий Б: отгон+остаток+потери != 100 ± 0.2 → MassBalanceViolation."""
 

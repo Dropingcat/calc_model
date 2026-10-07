@@ -22,6 +22,8 @@ from .constants import (
     GOST2177_METHODB_r,
     GOST2177_NOMOGRAM,
     GOST2177_EXTRAPOLATION_MAX_PCT,
+    GOST2177_TABLE4_POLICY_MODES,
+    GOST2177_TABLE4_POLICY_DEFAULT,
     interpolate_table,
 )
 from .exceptions import (
@@ -58,11 +60,29 @@ class GOST2177Calculator(BaseDistillationCalculator):
 
     method_name = "gost2177"
 
+    def __init__(self, table4_policy: str = GOST2177_TABLE4_POLICY_DEFAULT) -> None:
+        """table4_policy — TD-2177-002: политика A/B для нетабличного давления.
+
+        "strict" (по умолчанию, канон НД и книги v3.12): P вне [560, 760] →
+            PressureOutOfRangeError.
+        "clamp_low": P < 560 → A,B строки 560 + флаг PRESSURE_CLAMPED
+            (экспериментальный режим ВНЕ НД, только по письменному решению SOP).
+            P > 760 запрещён в любом режиме.
+        """
+        if table4_policy not in GOST2177_TABLE4_POLICY_MODES:
+            raise ValueError(
+                f"Неизвестный режим table4_policy={table4_policy!r}, "
+                f"допустимо: {GOST2177_TABLE4_POLICY_MODES}")
+        self.table4_policy = table4_policy
+        self._pressure_clamped = False
+
     # ------------------------------------------------------------------
     def _validate_pressure(self, inp: FractionInput) -> None:
         p = inp.pressure_mmhg()
         lo, hi = GOST2177_PRESSURE_RANGE
         if p < lo or p > hi:
+            if self.table4_policy == "clamp_low" and p < lo:
+                return  # легализованный clamp к нижней границе (флаг обязателен)
             raise PressureOutOfRangeError(p, min_mmhg=lo, max_mmhg=hi)
 
     # ------------------------------------------------------------------
@@ -81,14 +101,29 @@ class GOST2177Calculator(BaseDistillationCalculator):
     def _correct_loss(self, loss_pct: float, inp: FractionInput) -> float:
         """V_K = A·L + B (таблица 4 ГОСТ 2177-99).
 
-        Давление уже проверено в _validate_pressure (560..760).
+        TD-2177-002: политика нетабличного давления задаётся в конструкторе.
+        strict (канон): P вне [560, 760] → PressureOutOfRangeError
+        (давление также проверено в _validate_pressure).
+        clamp_low: P < 560 → A,B строки 560 + флаг PRESSURE_CLAMPED; P > 760 запрещён.
         """
         p = inp.pressure_mmhg()
-        if p < GOST2177_PRESSURE_RANGE[0] or p > GOST2177_PRESSURE_RANGE[1]:
-            raise PressureOutOfRangeError(p, min_mmhg=GOST2177_PRESSURE_RANGE[0],
-                                          max_mmhg=GOST2177_PRESSURE_RANGE[1])
+        lo, hi = GOST2177_PRESSURE_RANGE
+        if p < lo or p > hi:
+            if self.table4_policy == "clamp_low" and p < lo:
+                self._pressure_clamped = True
+                A, B = GOST2177_TABLE4[0][1], GOST2177_TABLE4[0][2]
+                return A * loss_pct + B
+            raise PressureOutOfRangeError(p, min_mmhg=lo, max_mmhg=hi)
         A, B = interpolate_table(p, GOST2177_TABLE4)
         return A * loss_pct + B
+
+    # ------------------------------------------------------------------
+    def calculate(self, inp: FractionInput) -> FractionResult:
+        self._pressure_clamped = False
+        res = super().calculate(inp)
+        if self._pressure_clamped:
+            res.Flags.append("PRESSURE_CLAMPED")  # TD-2177-002: режим вне НД помечен
+        return res
 
     # ------------------------------------------------------------------
     def _check_extrapolation(self, points, t_corr_raw: dict, t_corr_full: dict) -> None:
