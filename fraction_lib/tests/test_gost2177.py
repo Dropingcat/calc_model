@@ -215,3 +215,66 @@ class TestMethodB:
         # фиксированные значения: R(50)=3.0, r(50)=2.0
         assert res.Metrics.r["50"] == pytest.approx(2.0, abs=1e-9)
         assert res.Metrics.R["50"] == pytest.approx(3.0, abs=1e-9)
+
+class TestExtrapolationBanTD2177004:
+    """TD-2177-004 / ГОСТ 2177 п.5.5.8: жёсткий запрет экстраполяции T(V)."""
+
+    def test_interpolation_below_95_allowed(self, calc):
+        """Точка 30% без наблюдения между наблюдёнными 20/50 — интерполяция, ок."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={20: 60.0, 50: 80.0, 90: 110.0},
+            loss_pct=0.0, residue_pct=0.0,
+        )
+        res = calc.calculate(inp)
+        # интерполяция внутри диапазона наблюдений — без ошибок и флагов
+        assert "EXTRAPOLATED_96_98" not in res.Flags
+
+    def test_extrapolated_96_allowed_with_flag(self, calc):
+        """96% без наблюдения — легализованная экстраполяция (ветка потерь>=2%) + флаг."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={"IBP": 40.0, 10: 60.0, 50: 90.0, 90: 120.0, 95: 130.0, 96: None},
+            loss_pct=0.0, residue_pct=0.0,
+        )
+        res = calc.calculate(inp)
+        assert "EXTRAPOLATED_96_98" in res.Flags
+
+    def test_extrapolation_beyond_98_forbidden(self, calc):
+        """FBP (100%) без наблюдения — запрещённая экстраполяция > 98%."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={"IBP": 40.0, 10: 60.0, 50: 90.0, 90: 120.0, 95: 130.0, "FBP": None},
+            loss_pct=0.0, residue_pct=0.0,
+        )
+        from fraction_lib.exceptions import InvalidTestError
+        with pytest.raises(InvalidTestError) as ei:
+            calc.calculate(inp)
+        assert ei.value.code == "EXTRAPOLATION_FORBIDDEN"
+
+    def test_point_left_of_first_observed_forbidden(self, calc):
+        """Точка левее первой наблюдённой (< диапазона наблюдений) — запрет."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={"IBP": None, 10: 60.0, 50: 90.0, 90: 120.0, 95: 130.0},
+            loss_pct=0.0, residue_pct=0.0,
+        )
+        from fraction_lib.exceptions import InvalidTestError
+        with pytest.raises(InvalidTestError) as ei:
+            calc.calculate(inp)
+        assert ei.value.code == "EXTRAPOLATION_FORBIDDEN"
+
+    def test_fully_observed_curve_no_flags(self, calc):
+        """Полностью наблюдённая кривая — без ошибок и флагов."""
+        inp = FractionInput(
+            P_atm=760.0,
+            V_pct=[100.0],
+            T_obs={"IBP": 40.0, 5: 50.0, 10: 60.0, 50: 90.0, 90: 120.0, 95: 130.0, "FBP": 140.0},
+            loss_pct=0.0, residue_pct=0.0,
+        )
+        res = calc.calculate(inp)
+        assert res.Flags == []

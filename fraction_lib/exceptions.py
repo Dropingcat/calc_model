@@ -148,8 +148,12 @@ class InvalidTestError(FractionLibError):
 
     code = "INVALID_TEST"
 
-    def __init__(self, message: str, *, reason: str | None = None) -> None:
-        super().__init__(message, details={"reason": reason or message})
+    def __init__(self, message: str, *, reason: str | None = None,
+                 code: str | None = None, details: dict | None = None) -> None:
+        merged = dict(details or {})
+        if reason:
+            merged.setdefault("reason", reason)
+        super().__init__(message, code=code, details=merged or {"reason": message})
 
 
 class BoundaryRuleError(FractionLibError):

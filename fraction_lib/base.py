@@ -116,6 +116,10 @@ class BaseDistillationCalculator(ABC):
         # 7. Интерполяция недостающих точек (сценарий А — разреженные данные)
         t_corr_full = self._fill_missing(points, t_corr_raw)
 
+        # 7b. Контроль экстраполяции T(V) (метод-специфичный, ГОСТ: п. 5.5.8)
+        self._extrapolated_points = []
+        self._check_extrapolation(points, t_corr_raw, t_corr_full)
+
         # 8. Монотонность (аналитическое требование + сценарий А)
         self._check_monotonic(points, t_corr_full)
 
@@ -130,6 +134,8 @@ class BaseDistillationCalculator(ABC):
 
         # 12. Флаги: предупреждения коррекции потерь (TD-D86-001) + потери > лимита (сценарий В)
         flags = list(flags_mb) + list(getattr(inp, "_d86_loss_flags", []) or [])
+        if getattr(self, "_extrapolated_points", None):
+            flags.append("EXTRAPOLATED_96_98")  # TD-2177-004: легализованная экстраполяция
         self._check_loss_limit(loss_corr, inp, flags)
 
         # 13. Метод-специфичные расширения (AET, cracking, overlap...)
@@ -285,6 +291,21 @@ class BaseDistillationCalculator(ABC):
                         t1 = result[p1]
                         result[p] = t0 + (t1 - t0) * (vp - v0) / (v1 - v0)
         return result
+
+    def _check_extrapolation(self, points, t_corr_raw: dict, t_corr_full: dict) -> None:
+        """Контроль ЭКСТРАПОЛЯЦИИ кривой T(V) за диапазон наблюдений.
+
+        Хук (по умолчанию — без действий; реализуют методы-наследники, напр.
+        ГОСТ 2177 п. 5.5.8 — TD-2177-004). Вызывается сразу после
+        _fill_missing: t_corr_raw содержит None там, где значение НЕ
+        наблюдалось и было получено расчётом в t_corr_full.
+
+        Аргументы:
+            points: список точек (проценты / IBP / FBP) в порядке возрастания V.
+            t_corr_raw: значения по наблюдениям (None = точка не наблюдалась).
+            t_corr_full: итоговые значения после интерполяции/заполнения.
+        """
+        return None
 
     def _check_monotonic(self, points, t_corr: dict) -> None:
         """Проверка монотонного роста T по мере роста % отгона.

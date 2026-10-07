@@ -21,12 +21,14 @@ from .constants import (
     GOST2177_METHODB_R,
     GOST2177_METHODB_r,
     GOST2177_NOMOGRAM,
+    GOST2177_EXTRAPOLATION_MAX_PCT,
     interpolate_table,
 )
 from .exceptions import (
     PressureOutOfRangeError,
     RepeatabilityViolation,
     MassBalanceViolation,
+    InvalidTestError,
 )
 from .models import FractionInput, FractionResult
 
@@ -87,6 +89,66 @@ class GOST2177Calculator(BaseDistillationCalculator):
                                           max_mmhg=GOST2177_PRESSURE_RANGE[1])
         A, B = interpolate_table(p, GOST2177_TABLE4)
         return A * loss_pct + B
+
+    # ------------------------------------------------------------------
+    def _check_extrapolation(self, points, t_corr_raw: dict, t_corr_full: dict) -> None:
+        """TD-2177-004 / п. 5.5.8 ГОСТ 2177-99: жёсткий запрет экстраполяции T(V).
+
+        Политика (полный разбор — docs/TECHDEBT_TD2177_004.md):
+          * Значение точки <= GOST2177_EXTRAPOLATION_MAX_PCT (95%), полученное
+            НЕ из наблюдения, нормативно допустимо ТОЛЬКО как линейная
+            ИНТЕРПОЛЯЦИЯ между наблюдёнными точками (это не экстраполяция).
+            Если точка лежит вне диапазона наблюдений (левее первой / правее
+            последней наблюдённой) или наблюдённых точек < 2 — это
+            ЭКСТРАПОЛЯЦИЯ → InvalidTestError (код EXTRAPOLATION_FORBIDDEN).
+          * Точки 96..98%, полученные расчётом: легализованная линейная
+            экстраполяция по крайним наблюдённым точкам — требуется веткой
+            нормирования «потери >= 2%» (96%). Разрешена, помечается флагом
+            EXTRAPOLATED_96_98.
+          * FBP/КК без наблюдения (> 98%) — запрещён (см. выше).
+        """
+        known_v = sorted(
+            self._point_volume(p) for p in points
+            if t_corr_raw.get(p) is not None and self._point_volume(p) is not None
+        )
+        for p in points:
+            if t_corr_raw.get(p) is not None:
+                continue  # точка наблюдена — ок
+            v = self._point_volume(p)
+            if v is None:
+                continue
+            if 95.0 < v <= 98.0:
+                self._extrapolated_points.append(v)
+                continue  # легализованная экстраполяция 96/97/98% (ветка потерь>=2%)
+            inside = (
+                len(known_v) >= 2
+                and known_v[0] <= v <= known_v[-1]
+            )
+            if v <= GOST2177_EXTRAPOLATION_MAX_PCT and inside:
+                continue  # интерполяция между наблюдёнными — разрешена
+            raise InvalidTestError(
+                f"ГОСТ 2177 п.5.5.8: экстраполяция T(V) для точки {v:g}% отгона "
+                f"запрещена (значение не наблюдалось и не является интерполяцией "
+                f"между наблюдёнными точками).",
+                code="EXTRAPOLATION_FORBIDDEN",
+                details={"point": str(p), "volume_pct": v,
+                         "policy_max_pct": GOST2177_EXTRAPOLATION_MAX_PCT,
+                         "observed_range": [known_v[0], known_v[-1]] if known_v else None},
+            )
+
+    @staticmethod
+    def _point_volume(p) -> float | None:
+        """Объём (%) для точки; IBP/НК → 0, FBP/КК → 100."""
+        if isinstance(p, str):
+            if p.upper() in ("IBP", "НК"):
+                return 0.0
+            if p.upper() in ("FBP", "КК"):
+                return 100.0
+            try:
+                return float(p)
+            except ValueError:
+                return None
+        return float(p)
 
     # ------------------------------------------------------------------
     def _precision_all(self, points, t_corr, slopes, inp) -> tuple[dict, dict]:
