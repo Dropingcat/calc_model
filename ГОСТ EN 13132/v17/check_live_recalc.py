@@ -37,6 +37,15 @@ RTOL = 1e-3
 
 _KEY_RE = re.compile(r"^'?\[(?P<book>[^\]]+)\](?P<sheet>[^'!]+)'?!(?P<addr>[A-Z]+\d+)$")
 
+# Блок gost13132-v17-chart-axes: таблица точек для графика (02_Регрессия
+# A39:A50/B39:B50). ФИКС (Вариант А): для незаполненных уровней 7..12 формулы
+# возвращают NA() вместо "" — иначе "" в xVal серии точек ScatterChart
+# переключает ось X в категорийный режим 1..n («точки кривые, линия жива»).
+# Проверяем, что в формулах A..F таблицы точек НЕТ пустых текстов "".
+POINTS_FIRST = 39
+POINTS_LAST = 50
+POINTS_COLS = (1, 2, 3, 4, 5, 6)
+
 
 def pick_path():
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
@@ -78,6 +87,25 @@ def main():
         sheet = m.group("sheet").upper()
         addr = m.group("addr")
         values[(sheet, addr)] = ranges.value
+
+    # --- Блок gost13132-v17-chart-axes: таблица точек без пустых текстов "" ---
+    # (формулы A39:F50 должны возвращать NA() для незаполненных уровней, НЕ "")
+    import openpyxl  # noqa: PLC0415
+
+    wb_raw = openpyxl.load_workbook(path, data_only=False)
+    ws_reg = wb_raw["02_Регрессия"]
+    bad_blanks = []
+    for r in range(POINTS_FIRST, POINTS_LAST + 1):
+        for c in POINTS_COLS:
+            v = ws_reg.cell(r, c).value
+            if isinstance(v, str) and v.startswith("=") and ',"")' in v:
+                bad_blanks.append(
+                    f"{openpyxl.utils.get_column_letter(c)}{r}")
+    ok_pts = not bad_blanks
+    print(f"[{'PASS' if ok_pts else 'FAIL'}] V9: таблица точек A{POINTS_FIRST}:F{POINTS_LAST} "
+          f"без \"\" в формулах (NA() для пустых уровней)"
+          + (f" — найдено: {bad_blanks}" if bad_blanks else ""))
+    all_ok = ok_pts
 
     print("=" * 60)
     all_ok = True

@@ -225,12 +225,18 @@ def smooth_formula_r(w_expr, rcol="H", wcol="F", first=NODE_FIRST, last=NODE_LAS
 def urepr_formula(w_expr, mode_cell=MODE_CELL):
     """Полная формула u_repr(mean2) = √(max(0,R²−r²/2))/2,8 по активному режиму.
     Табл.1 и узлы smooth берутся ЯВНО с листа 03_ANOVA (именно поэтому формулы
-    корректны и на 04_Профиль, и на 05_Бюджет). Возвращает строку формулы БЕЗ '='."""
+    корректны и на 04_Профиль, и на 05_Бюджет). Возвращает строку формулы БЕЗ '='.
+
+    ФИКС v17 (баг 3: маскировка деления на ноль/ненахождения). РАНЬШЕ:
+    IFERROR(VLOOKUP(...),0.1) — при ненахождении узла подставлялась фиксированная
+    0.1/0.05 вместо видимой ошибки. ТЕПЕРЬ: IFERROR(VLOOKUP(...),NA()) — любое
+    ненахождение/ошибка даёт ЯВНОЕ #N/A (видимая ошибка, не подмена значения).
+    """
     tab = f"'03_ANOVA'!$A${TAB_FIRST}:$D${TAB_LAST}"
-    r_step = f"IFERROR(VLOOKUP({w_expr},{tab},4,TRUE),0.1)"
+    r_step = f"IFERROR(VLOOKUP({w_expr},{tab},4,TRUE),NA())"
     r_smooth = smooth_formula_r(w_expr, rcol="H", wcol="F")
     R_sel = f"IF({mode_cell}=1,{r_step},{r_smooth})"
-    r_step_r = f"IFERROR(VLOOKUP({w_expr},{tab},3,TRUE),0.05)"
+    r_step_r = f"IFERROR(VLOOKUP({w_expr},{tab},3,TRUE),NA())"
     r_smooth_r = smooth_formula_r(w_expr, rcol="G", wcol="F")
     r_sel = f"IF({mode_cell}=1,{r_step_r},{r_smooth_r})"
     return f"SQRT(MAX(0,{R_sel}^2-{r_sel}^2/2))/2.8"
@@ -438,30 +444,49 @@ def fill_regression_live(wb, levels, inputs):
     )
     DATA_FIRST = tbl_hdr + 1  # 39
     DATA_LAST = DATA_FIRST + N_LEVELS_MAX - 1  # 50
+    # ФИКС v17 (баг оси X серии точек, блок gost13132-v17-chart-axes). РАНЬШЕ:
+    # IF(ISNUMBER(...),...,"") — для незаполненных уровней 7..12 формулы возвращали
+    # ПУСТОЙ ТЕКСТ "" в диапазоне xVal серии точек ($A$39:$A$50) -> Excel видел
+    # НЕчисловой диапазон и переключал ось X серии точек в категорийный режим 1..n
+    # («точки кривые, а линия регрессии жива» — сетка A52:A151 оставалась числами).
+    # ТЕПЕРЬ: NA() вместо "" ВО ВСЕХ столбцах A..F таблицы точек — Excel в
+    # ScatterChart ПРОПУСКАЕТ точки с #N/A в xVal/yVal, ось X остаётся ЧИСЛОВОЙ;
+    # при заполнении пользователем уровней 7..12 точки появляются автоматически
+    # (диапазоны фиксированы A39:A50, динамика — живыми формулами).
     for i in range(N_LEVELS_MAX):
         r = DATA_FIRST + i
         src = FIRST_LEVEL + i
-        ws.cell(r, 1, f'=IF(ISNUMBER(\'01_Ввод\'!B{src}),\'01_Ввод\'!B{src},"")')
+        ws.cell(r, 1, f'=IF(ISNUMBER(\'01_Ввод\'!B{src}),\'01_Ввод\'!B{src},NA())')
         ws.cell(r, 1).number_format = "0.000000"
-        ws.cell(r, 2, f'=IF(ISNUMBER(\'01_Ввод\'!F{src}),\'01_Ввод\'!F{src},"")')
+        ws.cell(r, 2, f'=IF(ISNUMBER(\'01_Ввод\'!F{src}),\'01_Ввод\'!F{src},NA())')
         ws.cell(r, 2).number_format = "0.000000"
-        ws.cell(r, 3, f"=IF(ISNUMBER(A{r}),$B${R_B1}*A{r}+$B${R_B0},\"\")")
+        ws.cell(r, 3, f"=IF(ISNUMBER(A{r}),$B${R_B1}*A{r}+$B${R_B0},NA())")
         ws.cell(r, 3).number_format = "0.000000"
-        ws.cell(r, 4, f"=IF(ISNUMBER(B{r}),B{r}-C{r},\"\")")
+        ws.cell(r, 4, f"=IF(ISNUMBER(B{r}),B{r}-C{r},NA())")
         ws.cell(r, 4).number_format = "0.000000"
         uy = f"SQRT($B${R_S2}*(1/$B${R_N}+(A{r}-$B${R_XBAR})^2/$B${R_SXX}))"
-        ws.cell(r, 5, f'=IF(ISNUMBER(C{r}),C{r}-$B${k_band_r}*{uy},"")')
+        ws.cell(r, 5, f"=IF(ISNUMBER(C{r}),C{r}-$B${k_band_r}*{uy},NA())")
         ws.cell(r, 5).number_format = "0.000000"
-        ws.cell(r, 6, f'=IF(ISNUMBER(C{r}),C{r}+$B${k_band_r}*{uy},"")')
+        ws.cell(r, 6, f"=IF(ISNUMBER(C{r}),C{r}+$B${k_band_r}*{uy},NA())")
         ws.cell(r, 6).number_format = "0.000000"
         ws.cell(r, 7, 0.0).number_format = "0.000000"
         for c in range(1, 8):
             ws.cell(r, c).border = BORDER
 
-    GRID_PT = DATA_LAST + 2  # 52
+    GRID_PT = DATA_LAST + 2  # 52 (первая строка сетки)
+    # ФИКС v17 (баг 1: вырожденная сетка X). РАНЬШЕ в формулу подставлялся НОМЕР
+    # ТЕКУЩЕЙ строки r: (ROW()-r) ≡ 0 -> ВСЕ 100 точек = MIN(X), линия регрессии
+    # сжималась в одну точку. ТЕПЕРЬ во ВСЕХ ячейках ОДНА шаблонная формула
+    # (ROW()-ROW($A$GRID_PT)): при ROW()=52..151 даёт 0..99 (протяжка-семантика),
+    # ROW($A$52)=52 — абсолютная ссылка на первую строку диапазона сетки.
+    grid_formula = (
+        f"=MIN('01_Ввод'!$B$5:$B$16)"
+        f"+(ROW()-ROW($A${GRID_PT}))"
+        f"*(MAX('01_Ввод'!$B$5:$B$16)-MIN('01_Ввод'!$B$5:$B$16))/99"
+    )
     for i in range(100):
         r = GRID_PT + i
-        ws.cell(r, 1, f"=MIN('01_Ввод'!$B$5:$B$16)+(ROW()-{r})*(MAX('01_Ввод'!$B$5:$B$16)-MIN('01_Ввод'!$B$5:$B$16))/99")
+        ws.cell(r, 1, grid_formula)
         ws.cell(r, 1).number_format = "0.000000"
         ws.cell(r, 3, f'=IF(ISNUMBER(A{r}),$B${R_B1}*A{r}+$B${R_B0},"")')
         ws.cell(r, 3).number_format = "0.000000"
@@ -557,8 +582,10 @@ def fill_anova_live(wb, levels, inputs):
     # --- R/r/u_repr по режиму (B35..B40) ---
     w_expr = f"B{R_W0}"
     tab_range = f"$A${TAB_FIRST}:$D${TAB_LAST}"
-    R_step = f"IFERROR(VLOOKUP({w_expr},{tab_range},4,TRUE),0.1)"
-    r_step = f"IFERROR(VLOOKUP({w_expr},{tab_range},3,TRUE),0.05)"
+    # ФИКС v17 (баг 3): IFERROR(VLOOKUP,0.1/0.05) -> IFERROR(VLOOKUP,NA()):
+    # ненахождение узла/деление на ноль дают ЯВНУЮ ошибку #N/A, а не подмену 0.1/0.05.
+    R_step = f"IFERROR(VLOOKUP({w_expr},{tab_range},4,TRUE),NA())"
+    r_step = f"IFERROR(VLOOKUP({w_expr},{tab_range},3,TRUE),NA())"
     R_smooth = smooth_formula_r(w_expr, rcol="H", wcol="F")
     r_smooth = smooth_formula_r(w_expr, rcol="G", wcol="F")
     pairs = [
@@ -714,13 +741,19 @@ def fill_profile_live(wb, levels, inputs):
         ws.cell(r, 10, f"=IF(ISNUMBER(B{r}),B{r}*{K},\"\")")
         ws.cell(r, 10).number_format = "0.0000"
         # C: u_model(x)
-        ws.cell(r, 3, f"=IF(ISNUMBER({S2}),SQRT({S2}*(1/{P_INJ}+1/{N}+(B{r}-{XBAR})^2/{SXX}))/ABS({B1}),\"\")")
+        # ФИКС v17 (баг 3): IF(ISNUMBER(S2),...,"") -> при нечисловом s²_res было
+        # ПУСТО (маскировало недоступную модель). ТЕПЕРЬ NA() — видимая ошибка.
+        ws.cell(r, 3, f"=IF(ISNUMBER({S2}),SQRT({S2}*(1/{P_INJ}+1/{N}+(B{r}-{XBAR})^2/{SXX}))/ABS({B1}),NA())")
         ws.cell(r, 3).number_format = "0.000000"
         # D: u_repr(x) г/г  (u_repr_pct(J{r}) / K_G2PCT)
-        ws.cell(r, 4, f"=IF(ISNUMBER(J{r}),{urepr_formula(f'J{r}')}/{K},\"\")")
+        # ФИКС v17 (баг 3): IF(ISNUMBER(J),...,"") -> NA(): при нечисловом J(x)
+        # было ПУСТО (маскировало недоступную u_repr). ТЕПЕРЬ — видимая ошибка.
+        ws.cell(r, 4, f"=IF(ISNUMBER(J{r}),{urepr_formula(f'J{r}')}/{K},NA())")
         ws.cell(r, 4).number_format = "0.000000"
         # E: u_c(x)  (вклады-поля ввода: IF(<поле>=0,0,...) — «0 = не учитывать», TD-DEV-33)
-        ws.cell(r, 5, f"=IF(ISNUMBER(C{r}),SQRT(C{r}^2+IF({U_REL_ETAL}=0,0,(B{r}*{U_REL_ETAL})^2)+IF({U_PA}=0,0,(B{r}*'05_Бюджет'!$B${B_UREL_PUR})^2)+IF({U_MNET}=0,0,(B{r}*'05_Бюджет'!$B${B_UREL_MASS})^2)+D{r}^2),\"\")")
+        # ФИКС v17 (баг 3): IF(ISNUMBER(C),...,"") -> NA(): при нечисловом u_model
+        # было ПУСТО, скрывавшее цепочку ошибок. ТЕПЕРЬ — видимая ошибка.
+        ws.cell(r, 5, f"=IF(ISNUMBER(C{r}),SQRT(C{r}^2+IF({U_REL_ETAL}=0,0,(B{r}*{U_REL_ETAL})^2)+IF({U_PA}=0,0,(B{r}*'05_Бюджет'!$B${B_UREL_PUR})^2)+IF({U_MNET}=0,0,(B{r}*'05_Бюджет'!$B${B_UREL_MASS})^2)+D{r}^2),NA())")
         ws.cell(r, 5).number_format = "0.000000"
         # F: ν_eff(x) — Welch–Satterthwaite: модель (df_res) и эталоны (ν=50), если вклад != 0
         ws.cell(r, 6, f"=IF(OR(NOT(ISNUMBER(E{r})),E{r}=0),NA(),E{r}^4/(C{r}^4/{DF}+IF({U_REL_ETAL}=0,0,(B{r}*{U_REL_ETAL})^4/50)))")
@@ -849,10 +882,12 @@ def fill_budget_live(wb, levels, inputs):
             ws.cell(r, c).border = BORDER
 
     # доли дисперсии (столбец E)
+    # ФИКС v17 (баг 3): деление на u_c=0 уходило в молчаливый 0. ТЕПЕРЬ при B11=0
+    # (u_c=0 — вырожденный бюджет) ячейка даёт ЯВНОЕ #N/A, а не скрытый 0.
     for i in range(5):
         r = B_ROW_MODEL + i
         ws.cell(r, 5,
-                f"=IF(AND(ISNUMBER(B{r}),ISNUMBER($B${B_UC}),$B${B_UC}>0),B{r}^2/$B${B_UC}^2*100,0)").number_format = "0.00"
+                f"=IF(AND(ISNUMBER(B{r}),ISNUMBER($B${B_UC}),$B${B_UC}>0),B{r}^2/$B${B_UC}^2*100,NA())").number_format = "0.00"
 
     # итоги
     totals = [
@@ -974,8 +1009,16 @@ def fill_result_live(wb, levels, inputs):
     # --- 3. ПРОТОКОЛЬНАЯ ЗАПИСЬ ---
     r = r + 1 + len(res_cells) + 1
     ws.cell(r, 1, "3. ПРОТОКОЛЬНАЯ ЗАПИСЬ (ГОСТ EN 13132 §9, точность 0,1 % мас.)").font = HDR_FONT
-    proto = (f'="w(MTBE) = "&TEXT(ROUND(B{I_W0},1),"0.0")&" ± "&TEXT(ROUND(B{I_UPCT},1),"0.0")'
-             f'&" % мас. (P=0,95, k="&TEXT(ROUND(B{I_K},2),"0.00")&", ν_eff="&TEXT(ROUND(B{I_NUEFF},0),"0")&")"')
+    # ФИКС v17 (баг 2: #VALUE! в русской локали). РАНЬШЕ: TEXT(...,"0.0") — десятичная
+    # ТОЧКА в строке формата НЕВАЛИДНА в русской локали (разделитель — запятая) ->
+    # Excel отдаёт #VALUE! (диагностика report6/report7: "0,0"->'4,0', "0.0"->#VALUE!).
+    # ТЕПЕРЬ БЕЗ TEXT: FIXED(число;десятичные;БЕЗ_разделителя) работает в ОБЕИХ локалях
+    # (запятая-аргумент; десятичный разделитель вывода — локальный: "3,967"/"3.967").
+    # ±/ν — юникод в строке, конкатенация через & (TEXT не участвует вовсе).
+    proto = (f'="w(MTBE) = "&FIXED(ROUND(B{I_W0},1),1,TRUE)'
+             f'&" ± "&FIXED(ROUND(B{I_UPCT},1),1,TRUE)'
+             f'&" % мас. (P=0,95, k="&FIXED(ROUND(B{I_K},2),2,TRUE)'
+             f'&", ν_eff="&FIXED(ROUND(B{I_NUEFF},0),0,TRUE)&")"')
     ws.cell(r + 1, 1, proto).font = Font(bold=True, size=12, color="1F4E79")
     ws.cell(r + 1, 1).border = BORDER
     ws.cell(r + 2, 1, "Протокольное округление до 0,1 % мас. (§9 ГОСТ EN 13132); "

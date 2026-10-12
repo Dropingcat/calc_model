@@ -536,7 +536,7 @@ def dump_structure(path):
             texts = [t.text or "" for t in block.iter(qn("w:t"))]
             txt = "".join(texts)
             if txt.strip():
-                print(f"  P: {txt[:110]}")
+                print(f"  P: {txt[:110]}".encode("utf-8", "replace").decode("utf-8"))
         elif tag == "tbl":
             rows = block.findall(qn("w:tr"))
             print(f"  --- ТАБЛИЦА ({len(rows)} строк) ---")
@@ -546,12 +546,17 @@ def dump_structure(path):
                     ct = "".join("".join(t.text or "" for t in p.iter(qn("w:t")))
                                  for p in tc.findall(qn("w:p")))
                     cells.append(ct[:26])
-                print("     ", " | ".join(cells))
+                row_txt = "     " + " | ".join(cells)
+                print(row_txt.encode("utf-8", "replace").decode("utf-8"))
             if len(rows) > 8:
                 print(f"      ... ещё {len(rows) - 8} строк")
 
 
 def main():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # Windows-консоль: UTF-8 (dump_structure)
+    except Exception:
+        pass
     print("build_en13132_v17_word.py — генерация Word-отчёта v17 (step, TD-DEV-208)")
     print("Источник входов:", bld.OUT_XLSX)
     d = collect_data()

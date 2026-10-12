@@ -157,6 +157,30 @@ def check_series_sheets(path, label=""):
           not bad, "; ".join(bad) if bad else "все серии консистентны")
 
 
+def check_no_blank_in_points_table(wb, sheet, first, last, label=""):
+    """V9 (блок gost13132-v17-chart-axes): в таблице точек для графика
+    (02_Регрессия, строки DATA_FIRST..DATA_LAST) НЕ должно быть формул,
+    возвращающих ПУСТОЙ ТЕКСТ "" для незаполненных уровней.
+
+    Причина бага «точки кривые — ось X 1..6»: формулы вида
+    IF(ISNUMBER(...),...,"") для пустых уровней давали "" в диапазоне xVal
+    серии точек ScatterChart -> Excel переключал ось X в категорийный режим.
+    Фикс (Вариант А): вместо "" везде NA() — Excel ПРОПУСКАЕТ точки #N/A.
+    Проверка ловит РЕГРЕССИЮ: формулы не должны содержать ","")
+    и ",\"\")" в диапазоне таблицы точек.
+    """
+    prefix = label + " " if label else ""
+    bad = []
+    for r in range(first, last + 1):
+        for c in (1, 2, 3, 4, 5, 6):
+            v = sheet.cell(r, c).value
+            if isinstance(v, str) and v.startswith("="):
+                if ',"")' in v:
+                    bad.append(f"{sheet.title}!{openpyxl.utils.get_column_letter(c)}{r}: {v!r}")
+    check(f"{prefix}V9: таблица точек не содержит формул с \"\" (пустой текст в xVal)",
+          not bad, "; ".join(bad) if bad else "все формулы с NA()")
+
+
 def check_all_series_programmatic(path, label=""):
     """V8 (итерация 4): проверка ВСЕХ диаграмм/серий листа «Графики» программно.
 
@@ -259,6 +283,7 @@ def check_chart_refs(path, n_levels, label=""):
         zero_ok = all(ws_reg.cell(r, 7).value == 0 for r in range(DATA_FIRST, DATA_LAST + 1))
         check(f"{prefix}V2n: столбец G (линия нуля) = 0 для всех уровней", zero_ok,
               f"G{DATA_FIRST}:G{DATA_LAST}")
+        check_no_blank_in_points_table(wb, ws_reg, DATA_FIRST, DATA_LAST, label=label)  # V9
         ok_g1, det_g1 = cells_numeric(path, "02_Регрессия", 1, 1, GRID_PT, GRID_PT + 99)
         ok_g3, det_g3 = cells_numeric(path, "02_Регрессия", 3, 3, GRID_PT, GRID_PT + 99)
         check(f"{prefix}V2f: ячейки линии GRID_PT числовые (A и C)",

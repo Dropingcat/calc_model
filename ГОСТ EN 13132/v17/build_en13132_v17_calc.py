@@ -915,8 +915,10 @@ def fill_result(wb, levels, inputs, res):
     # --- 3. ПРОТОКОЛЬНАЯ ЗАПИСЬ ---
     r = r + 1 + len(res_rows) + 1
     ws.cell(r, 1, "3. ПРОТОКОЛЬНАЯ ЗАПИСЬ (ГОСТ EN 13132 §9, точность 0,1 % мас.)").font = HDR_FONT
+    # Запись — СТАТИЧНЫЙ ТЕКСТ (не формула), поэтому #VALUE! из TEXT-локали в CALC
+    # не возникает; десятичный разделитель — запятая (локаль ru, паттерн v15).
     rec = (f"w(MTBE) = {W0:.1f} ± {res['U_RES_PCT']:.1f} % мас. "
-           f"(P=0,95, k={res['K_RES']:.2f}, ν_eff={res['NU_EFF_RES']:.0f})")
+           f"(P=0,95, k={res['K_RES']:.2f}, ν_eff={res['NU_EFF_RES']:.0f})").replace(".", ",")
     ws.cell(r + 1, 1, rec).font = Font(bold=True, size=12, color="1F4E79")
     ws.cell(r + 1, 1).border = BORDER
     ws.cell(r + 2, 1, "Протокольное округление до 0,1 % мас. (§9 ГОСТ EN 13132); "
