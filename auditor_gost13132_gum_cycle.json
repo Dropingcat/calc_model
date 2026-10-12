@@ -1,0 +1,34 @@
+{
+  "verdict": "REQUEST_CHANGES",
+  "justification": "Это baseline-аудит готовности к новому циклу (ГОСТ EN 13132 + ANOVA-GUM), а не трибунал по паре «ревьюер/воркер» — такой пары для целевого модуля ещё нет. Процесс стартует поверх НЕзакрытых требований предыдущего аудита (auditor_fraction_cycle.json: ФР-32 slope 5%, рассинхрон реестров, контракт fraction_lib_v2, самопроверка генераторов), для последних артефактов (restructure_v4, Metrology_LAB_v12) отсутствуют независимые ревью и аудиты (нарушение конвейера 06 §2), PROBLEMS_REGISTER.md (контракт 05) не существует, артефакты пишутся вне шаблона путей (10 §9), целевой ANOVA-модуль отсутствует и методическое решение о его месте относительно Metrology_Core_EURACHEM_v4 / Metrology_LAB_v12 не зафиксировано. Позитив: есть детерминированные верификаторы (verify_v4.py 351 PASS, metrology_lab_v12_validate.py LEVEL2_OK с MC/GUM=0.997 и FD-проверкой 7.8e-12), НД извлечены в v11/extracted, QA честно фиксирует ограничения.",
+  "section_0_diligence": [
+    "Промпт runner передаёт ЗАДАЧУ цикла (пути к папке ГОСТ EN 13132 и Metrology_Core_EURACHEM_v4.xlsx), а не вердикт ревьюера + ответ воркера для трибунала → проверил наличие пары worker/reviewer/auditor JSON → пара для целевого модуля отсутствует; обработано как baseline-аудит готовности, INVALID_INPUT неуместен (пути — контекст задачи, не код воркера).",
+    "Есть ли независимое ревью restructure_v4 → glob reviewer_*.json → НЕТ reviewer_restructure*.json; ревью последнего воркер-артефакта отсутствует (нарушение 06 §2).",
+    "Есть ли аудитор для restructure_v4 / v12 → glob auditor_*.json → только auditor_fraction_cycle.json (REQUEST_CHANGES, требования не подтверждены закрытыми).",
+    "Существует ли PROBLEMS_REGISTER.md → glob PROBLEMS_REGISTER* → НЕТ; TD размазаны по техдолги_фракционка.md, techdebt.md, TECH_DEBT_BOARD.md, development/tech_debt_master.json — двойной источник правды (триггер 07 §2 №3).",
+    "Пути артефактов по шаблону 10 §9 → проверил расположение JSON → все лежат в C:\\Users\\Arhys\\Desktop\\каллибровка\\, а не в ${HARNESS_ROOT}/<ROLE>_<BLOCK_ID>.json (E:\\opencode_harness_portable).",
+    "Metrology_Core_EURACHEM_v4.xlsx имеет фабричное ревью → glob reviewer_*.json + ревью 4.1.txt → 'ревью 4.1.txt' не фабричный JSON (нет verdict/comments/falsification); R-01..R-15 по tracker закрыты в v5.x, но артефакт-подтверждение (reviewer_*.json) отсутствует.",
+    "Metrology_LAB_v12 прошла полный цикл → glob worker/reviewer/auditor по v12 → фабричных артефактов нет; есть только независимый read-only аудит xlsx (LEVEL2_OK) — это НЕ заменяет конвейер worker→reviewer→auditor.",
+    "Существует ли целевой модуль «классическая ANOVA по GUM» → прочитал v11/architecture/contract.json (B1/B2 — LPU/MC/EIV), README v12, cal_v4 → ANOVA-модуля нет; существующие подходы OLS/WLS/EIV+MC. Методическое решение о месте ANOVA относительно существующих бюджетов не зафиксировано (риск двойного счёта).",
+    "Проведён ли аудит графиков Metrology_Core против НД → заявлено в задаче, но артефакт-анализ отсутствует → [UNVERIFIED] до фактического прогона analyst/researcher в цикле.",
+    "iteration_limit → контракт 13 §2: max 3 итерации → по фракционке уже v3.11 → fix → fr13 → restructure_v4 (>=3) без эскалации пользователю."
+  ],
+  "process_analysis": {
+    "contracts_respected": false,
+    "iteration_count": 4,
+    "iteration_limit": 3,
+    "role_violation": true,
+    "reviewer_args_assessment": "Ревью фракционки (reviewer_fraction_v311.json) — REQUEST_CHANGES с 8 фальсифицируемыми замечаниями (2 critical: 5.5.5 восстановленный отгон, slope_rules ISO/D86; major: IBP/FBP auto, r/R T->V ГОСТ 2177, приложение А; minor × 3). Сильно и конкретно. Но по restructure_v4 и Metrology_LAB_v12 ревью-артефактов нет вовсе.",
+    "worker_args_assessment": "Воркер-артефакты содержат реальные фиксы и детерминированные верификаторы (351 PASS, LEVEL2_OK, MC/GUM=0.997) — прогресс есть. Однако воркером выступал код-оркестратор (самопроверка генераторов), а последние артефакты не доведены до ревью/аудита — циклы не замкнуты."
+  },
+  "requirements": [
+    "Закрыть требования предыдущего аудита auditor_fraction_cycle.json ФАКТАМИ до старта нового цикла: ФР-32 (slope 5% в fraction_lib vs A4.3/D86), синхронизация реестров техдолги_фракционка.md, закрытие контракта fraction_lib_v2 (тройная валидация + VALIDATION_REPORT.md). Каждый пункт — статус CLOSED + критерий закрытия + тест.",
+    "Прогнать полный конвейер для существующих артефактов: независимое фальсифицируемое ревью restructure_v4 + аудит; оформить фабричные worker/reviewer/auditor JSON для Metrology_LAB_v12 (сейчас есть только read-only аудит xlsx).",
+    "Создать единый PROBLEMS_REGISTER.md (контракт 05) как единственный источник техдолгов; синхронизировать/закрыть техдолги_фракционка.md, techdebt.md, TECH_DEBT_BOARD.md, tech_debt_master.json.",
+    "Соблюдать шаблон путей артефактов (контракт 10 §9): ${HARNESS_ROOT}/projects/<PROJECT_ID>/artifacts/<ROLE>_<BLOCK_ID>.json.",
+    "Разделить роли: воркер ≠ оркестратор; ревьюер независим (канон «нельзя быть себе судьёй», нарушение уже зафиксировано ранее).",
+    "ДО кодинга зафиксировать методический контракт ANOVA-GUM: где именно ГОСТ EN 13132 / НД требует ANOVA (раздел/приложение), как ANOVA-бюджет соотносится с профилем U(x) из Metrology_Core_EURACHEM_v4 и бюджетом Metrology_LAB_v12 (анти-двойной счёт), какой «грубый учёт» допустим. Выход: общая неопределённость калибровки + профиль, без излишеств.",
+    "Аудит графиков Metrology_Core_EURACHEM_v4.xlsx против НД оформить как артефакт analyst/researcher findings в цикле (файл + вердикт), а не только как пожелание в промпте.",
+    "Не превышать iteration_limit: при 3-й итерации REQUEST_CHANGES — обязательная эскалация пользователю (контракт 13 §2, стоп-критерии shared code-factory-process: requires_user > auditor_block > iteration_limit)."
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "module": "gost13132-v15-problems-register",
+  "code": "см. PROBLEMS_REGISTER.md (C:\\Users\\Arhys\\Desktop\\каллибровка\\ГОСТ EN 13132\\PROBLEMS_REGISTER.md)",
+  "description": "Создан единый реестр техдолгов PROBLEMS_REGISTER.md по контракту 05 (TD-DEV-N, таблица: TD-ID|Severity|Что|Комментарий|Блок|Статус + колонка «Происхождение»). Сконсолидированы 15 источников: techdebt.md, техдолги_фракционка.md, v11/TECH_DEBT.md, v11/development/tech_debt_master.json, v11/development/TECH_DEBT_BOARD.md, v15/EN13132_v15_ФИНАЛЬНАЯ_РЕВИЗИЯ_ДОЛГОВ.md (BUD-01..20), v15/EN13132_v15_QA.json, auditor_gost13132_gum_cycle.json (8 требований), auditor_fraction_cycle.json, reviewer_фракционка.json, reviewer_fraction_v311.json, reviewer_fr13_gost2177.json, reviewer_fraction_fix.json, v15/AUDIT_FINDINGS.md (C1-C4/M1-M6/m1-m4/U1-U4), v15/PLAN_FACTORY_CYCLE.md (блоки 1-7). Все 14 находок AUDIT_FINDINGS (C1-C4, M1-M6, m1-m4) и 4 [UNVERIFIED] (U1-U4) имеют TD-ID; 8 требований аудитора привязаны к TD-ID и блокам плана (треб.3 -> блок 1 CLOSED данным файлом; треб.6 -> блок 2 и т.д.). Нумерация: максимальный legacy-ID BUD-20 -> сквозные TD-DEV-21..TD-DEV-180 (160 TD). Дубли сведены: ND-001..017 (3 файла -> 17 TD), закрытые ФР-01..31 и замечания ревьюеров — по одной строке. Исходные реестры НЕ изменялись (scope блока — только PROBLEMS_REGISTER.md).",
+  "notes": [
+    "Статистика: 160 TD всего; OPEN=99, CLOSED=53, PARTIAL=7, IMPLEMENTED=1; HIGH=67, MEDIUM=30, LOW=63; источников консолидации = 15; максимум TD-DEV-180.",
+    "M1 (PROBLEMS_REGISTER отсутствовал) закрыт данным файлом (TD-DEV-25); треб.3 аудитора закрыт данным файлом (TD-DEV-37).",
+    "Закрытые TD сохранены в реестре со статусом CLOSED для сверки «число TD = сверено с techdebt.md+техдолги+BUD» (критерий готовности блока 1).",
+    "TD-DEV-104 содержит экранированные пайпы \\| (в тексте ФР-25: |X1-X2|, |T1-T2|) — markdown-корректно.",
+    "Исходные реестры (techdebt.md, техдолги_фракционка.md, TECH_DEBT_BOARD.md, tech_debt_master.json) НЕ изменялись — физическая синхронизация за аналитиком/деплоером (отмечено в разделе 4).",
+    "Токен ghp_... в TD-DEV-137/173 не раскрыт полностью (зафиксирован как в techdebt.md).",
+    "Коммит не выполнялся (деплоер, блок 7)."
+  ]
+}

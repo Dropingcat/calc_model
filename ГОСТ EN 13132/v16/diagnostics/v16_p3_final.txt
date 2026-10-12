@@ -1,0 +1,14 @@
+== gen == (1112 строк)
+  L20: 'M_PROBY' <- Константы M_PROBY/M_IS_PROBA/P_IS/P_A/Y0_PROBA/U_M_NET/U_PA в коде удалены.
+  L76: '4.0' <- ("m_is_proba", "Масса ИС в пробу m_ИС (г)", 4.0, "0.000", "г",
+== kernel == (757 строк)
+  L499: '4.0' <- + (z3 + z) / (4.0 * nu)
+  L501: '4.0' <- + (3.0 * z7 + 19.0 * z5 + 17.0 * z3 - 15.0 * z) / (384.0 * nu ** 3)
+  L756: '4.0' <- print("  u_repr(mean2) smooth w=4.0:", u_repr_from_tables(4.0, TABLE1, "mean2", "smooth")["u_repr"])
+
+== Проверка: все входы читаются из 01_Ввод ==
+  def read_inputs L228
+  L375: K_G2PCT = m_is * p_is / m_proby * 100.0  # г/г -> % мас.
+  L1037: inputs = read_inputs(ws_in)  # единый источник: значения из ячеек 01_Ввод
+  L1059: inputs = read_inputs(ws)
+  L1078: inputs = default_inputs(levels)
