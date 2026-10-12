@@ -1,5 +1,8 @@
-# Secrets & локальные окружения — никогда не коммитить
+# Environment files
 .env
+# Secrets & generated artifacts (не коммитим)
+.env
+*.xlsx
 *.token
 
 # Python compiled files
@@ -9,7 +12,8 @@ __pycache__/
 
 # Артефакты расчётов/сборки (книги версионируются явно через new_versions_*)
 result.json
-build/
-dist/
-*.spec
 Отчёт_по_калибровке.docx
+*.docx
+build/
+*.spec
+dist/
